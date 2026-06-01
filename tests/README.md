@@ -199,6 +199,27 @@ Relevant model CI ownership:
   with `--enable-realtime` and drives `/v1/realtime` through a real WebSocket
   client to cover text responses, server VAD transcription, and disconnect
   teardown.
+- CLI flags `--s2pro-stage {nonstream,stream,consistency,all}` and
+  `--concurrency {1,2,4,8,16,all}`: scope an S2-Pro CI sweep without editing
+  source.
+
+### Ming TP Parity
+
+`tests/test_model/test_ming_tp_parity_ci.py` launches Ming-Omni twice, first
+with TP=1 and then with TP=N, and compares deterministic text responses. It is
+skipped by default because it requires a Ming checkpoint and enough GPUs.
+
+Remote GPU example:
+
+```bash
+RUN_MING_TP_PARITY=1 \
+MING_TP_PARITY_TP_SIZE=4 \
+MING_TP_PARITY_CUDA_VISIBLE_DEVICES=0,1,2,3,4 \
+MING_OMNI_MODEL_PATH=inclusionAI/Ming-flash-omni-2.0 \
+MING_OMNI_MODEL_NAME=ming-omni \
+python3 -m pytest tests/test_model/test_ming_tp_parity_ci.py -q -s
+```
+
 - `test_tts_ci.py`: default TTS CI gate. It starts the TTS managed router
   with two one-GPU workers using the default model config, runs the
   full SeedTTS EN set (1088 samples) in non-streaming / streaming stages at
