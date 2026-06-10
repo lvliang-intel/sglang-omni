@@ -4,6 +4,8 @@ SGLang-native Talker model for Qwen3-Omni compatiable with hf formatting.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 from typing import Iterable, Optional, Tuple
 
 import torch
@@ -34,6 +36,7 @@ from sglang_omni.vendor.sglang.core import ForwardBatch
 from sglang_omni.vendor.sglang.distributed import tensor_model_parallel_all_reduce
 from sglang_omni.vendor.sglang.layers import (
     MergedColumnParallelLinear,
+    MRotaryEmbedding,
     QuantizationConfig,
     ReplicatedLinear,
     RMSNorm,
@@ -44,6 +47,14 @@ from sglang_omni.vendor.sglang.layers import (
 from sglang_omni.vendor.sglang.models import apply_qk_norm
 from sglang_omni.vendor.sglang.server_args import get_global_server_args
 from sglang_omni.vendor.sglang.utils import make_layers
+
+# Stay compatible across releases that renamed/split optional fields such as
+# ``acc_linear_penalties`` on SGLang v0.5.8.
+_SAMPLING_BATCH_INFO_FIELDS: frozenset[str] = (
+    frozenset(f.name for f in dataclasses.fields(SamplingBatchInfo))
+    if dataclasses.is_dataclass(SamplingBatchInfo)
+    else frozenset()
+)
 
 
 def _bind_default_weight_loaders(module: nn.Module) -> None:
@@ -764,6 +775,12 @@ class Qwen3OmniTalker(nn.Module):
             quant_config=quant_config,
             prefix=add_prefix("model", prefix),
         )
+        # True only if the backbone uses MRotaryEmbedding (3D positions).
+        # Otherwise it uses a plain RotaryEmbedding that needs 1D positions.
+        self._uses_mrope = any(
+            isinstance(layer.self_attn.rotary_emb, MRotaryEmbedding)
+            for layer in self.model.layers
+        )
         self.codec_head = ReplicatedLinear(
             config.text_config.hidden_size,
             config.text_config.vocab_size,
@@ -1065,8 +1082,12 @@ class Qwen3OmniTalker(nn.Module):
             else:
                 input_embeds = self.prepare_input_embeds(thinker_embeds=input_embeds)
 
-        if forward_batch.mrope_positions is not None:
-            positions = forward_batch.mrope_positions
+        # Use 3D mrope_positions only when the backbone is mrope; the plain
+        # RotaryEmbedding path needs the 1D positions instead.
+        if self._uses_mrope and forward_batch.mrope_positions is not None:
+            positions = forward_batch.mrope_positions.contiguous()
+        else:
+            positions = forward_batch.positions
 
         hidden_states = self.model(
             input_ids=input_ids,
@@ -1157,7 +1178,7 @@ class Qwen3OmniTalker(nn.Module):
         return sampled
 
     def _build_static_sampling_info(self, batch_size: int) -> SamplingBatchInfo:
-        return SamplingBatchInfo(
+        kwargs = dict(
             temperatures=self._sampling_temperatures[:batch_size],
             top_ps=self._sampling_top_ps[:batch_size],
             top_ks=self._sampling_top_ks[:batch_size],
@@ -1183,6 +1204,13 @@ class Qwen3OmniTalker(nn.Module):
             device="cuda",
             logit_bias=None,
         )
+        # ``acc_linear_penalties`` exists on SGLang v0.5.8 but was split
+        # into ``acc_additive_penalties``/``acc_scaling_penalties`` on newer
+        # ones. Only pass it when the running SGLang actually defines it so the
+        # code stays compatible across both versions.
+        if "acc_linear_penalties" in _SAMPLING_BATCH_INFO_FIELDS:
+            kwargs["acc_linear_penalties"] = None
+        return SamplingBatchInfo(**kwargs)
 
     def _extend_last_index(
         self,

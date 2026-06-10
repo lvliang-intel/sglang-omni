@@ -88,6 +88,7 @@
   // FP8 always uses the native FP8 checkpoint — quantization is inferred automatically
   // by the thinker/talker workers from the checkpoint config, so no server-side flag needed.
   // Colocated FP8 additionally switches to a dedicated YAML for the memory budget.
+  // INT4 uses the AutoRound quantized checkpoint.
   var PRECISIONS = {
     'bf16': {
       label:    'BF16',
@@ -105,6 +106,13 @@
           };
         }
         return { modelPath: 'marksverdhei/Qwen3-Omni-30B-A3B-FP8' };
+      },
+    },
+    'int4': {
+      label:    'INT4',
+      subtitle: 'AutoRound',
+      contribute: function() {
+        return { modelPath: 'Intel/Qwen3-Omni-30B-A3B-Instruct-int4-AutoRound' };
       },
     },
   };
@@ -134,6 +142,9 @@
     if (ctx.prec === 'fp8' && !(ctx.mode === 'speech' && ctx.topo === 'colocated')) {
       var fp8Desc = 'Native FP8 checkpoint; quantization inferred automatically for both thinker and talker AR stages';
       items.push({ flag: '--model-path marksverdhei/…FP8', desc: fp8Desc });
+    }
+    if (ctx.prec === 'int4') {
+      items.push({ flag: '--model-path Intel/…int4-AutoRound', desc: 'AutoRound INT4 quantized checkpoint' });
     }
     if (items.length === 0) {
       items.push({ flag: '(no extra flags)', desc: 'Disaggregated speech pipeline with thinker on GPU 0 and talker on GPU 1 by default' });
