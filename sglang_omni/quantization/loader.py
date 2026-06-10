@@ -85,20 +85,20 @@ class QuantizedWeightLoader:
     ) -> None:
         """Quantization-aware weight loading."""
         for target, loaded_weight in weights:
-            # Apply preprocessing if needed
-            if self.method is not None:
-                loaded_weight = self.method.preprocess_weights(target, loaded_weight)
-
             if target not in self._params_dict:
                 continue
             param = self._params_dict[target]
+
+            # Apply preprocessing only for matched parameters
+            if self.method is not None:
+                loaded_weight = self.method.preprocess_weights(target, loaded_weight)
 
             # Use quantization-specific weight loader
             weight_loader = getattr(param, "weight_loader", None)
             if weight_loader is not None and weight_loader != default_weight_loader:
                 weight_loader(param, loaded_weight)
             else:
-                self.method.weight_loader(param, loaded_weight)
+                self.method.weight_loader(param, loaded_weight, target_name=target)
 
 
 def bind_weight_loaders(

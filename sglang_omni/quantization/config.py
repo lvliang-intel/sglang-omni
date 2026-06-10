@@ -71,12 +71,12 @@ class QuantizationConfig:
             Dict suitable for passing to backend
         """
         return {
+            **self.extra,
             "quant_method": self.method,
             "bits": self.bits,
             "group_size": self.group_size,
             "sym": self.sym,
             "packing_format": self.packing_format,
-            **self.extra,
         }
 
     @property

@@ -6,7 +6,10 @@ import logging
 from typing import Any
 
 import torch
-from sglang.srt.layers.quantization.fp8 import Fp8Config, Fp8LinearMethod
+from torch import nn
+
+from sglang.srt.layers.linear import ReplicatedLinear
+from sglang.srt.layers.quantization.fp8 import Fp8Config
 
 from sglang_omni.quantization.base import QuantizationMethod
 from sglang_omni.quantization.registry import QuantizationRegistry
@@ -117,7 +120,22 @@ class FP8Quantization(QuantizationMethod):
         out_features: int,
         bias: bool = False,
         **kwargs: Any,
-    ):
+    ) -> nn.Module:
+        """Create an FP8 quantized linear layer.
+
+        Returns a real ``nn.Module`` (``ReplicatedLinear``) whose quant method is
+        an ``Fp8LinearMethod`` derived from the FP8 config, keeping the return
+        type consistent with the base interface and other quantization methods.
+
+        Args:
+            in_features: Input feature dimension
+            out_features: Output feature dimension
+            bias: Whether to include bias
+            **kwargs: Additional arguments (e.g. ``quant_config``, ``prefix``)
+
+        Returns:
+            FP8 quantized linear module
+        """
         quant_config = kwargs.get("quant_config")
         if quant_config is None:
             quant_config = Fp8Config(
@@ -125,7 +143,13 @@ class FP8Quantization(QuantizationMethod):
                 activation_scheme="dynamic",
                 weight_block_size=list(self.get_weight_block_size()),
             )
-        return Fp8LinearMethod(quant_config)
+        return ReplicatedLinear(
+            in_features,
+            out_features,
+            bias=bias,
+            quant_config=quant_config,
+            prefix=kwargs.get("prefix", ""),
+        )
 
     def preprocess_weights(
         self,
