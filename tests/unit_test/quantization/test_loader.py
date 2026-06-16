@@ -105,6 +105,25 @@ class TestQuantizedWeightLoader:
         # Should not raise
         loader.load_weights(weights)
 
+    def test_detect_with_programmatically_constructed_config(self) -> None:
+        """Programmatically-constructed configs have empty `extra`, but detection
+        must still resolve the method from `config.method`.
+        """
+        from sglang_omni.quantization import QuantizationRegistry
+
+        for method_name in ("fp8", "auto-round"):
+            model = SimpleModel()
+            config = QuantizationConfig(method=method_name, bits=8, group_size=128)
+
+            # Sanity: `extra` is empty, so a detection that only looks at
+            # `extra` would miss the method entirely.
+            assert config.extra == {}
+
+            loader = QuantizedWeightLoader(model, config)
+
+            expected_cls = QuantizationRegistry.get(method_name)
+            assert isinstance(loader.method, expected_cls)
+
 
 class TestBindWeightLoaders:
     """Tests for bind_weight_loaders."""

@@ -331,24 +331,8 @@ class AutoRoundQuantization(QuantizationMethod):
         loaded_weight: torch.Tensor,
         **kwargs: Any,
     ) -> None:
-        """Load AutoRound quantized weights.
-
-        Args:
-            param: Model parameter to load into
-            loaded_weight: Weight from checkpoint
-            **kwargs: Additional loader arguments
-        """
-        # Check if this is a quantized parameter
-        is_quantized = any(
-            suffix in kwargs.get("target_name", "") for suffix in self.QUANT_SUFFIXES
-        )
-
-        if is_quantized:
-            # For quantized weights, just copy directly
-            # The quantized linear layer will handle dequantization
-            param.data.copy_(loaded_weight)
-        else:
-            param.data.copy_(loaded_weight)
+        """Load AutoRound weights."""
+        param.data.copy_(loaded_weight)
 
     def get_quantized_param_names(self) -> tuple[str, ...]:
         """Get the suffixes that indicate quantized parameters.

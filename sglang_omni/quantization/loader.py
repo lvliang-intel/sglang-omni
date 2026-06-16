@@ -40,7 +40,7 @@ class QuantizedWeightLoader:
 
         if config is not None:
             detected = QuantizationRegistry.detect(
-                {"quantization_config": config.extra}
+                {"quantization_config": config.to_backend_config()}
             )
             if detected is not None:
                 self.method = detected

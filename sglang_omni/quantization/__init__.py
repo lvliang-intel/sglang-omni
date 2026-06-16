@@ -31,8 +31,8 @@ from sglang_omni.quantization.loader import (
 )
 from sglang_omni.quantization.registry import QuantizationRegistry
 
-# Auto-register all built-in methods
-QuantizationRegistry.auto_register_all()
+# Built-in quantization methods are imported lazily on first use via
+# ``QuantizationRegistry._ensure_builtins_registered()``.
 
 __all__ = [
     "QuantizationMethod",

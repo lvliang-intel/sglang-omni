@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Type, overload
 
@@ -12,8 +13,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Built-in method modules to attempt to import during auto-registration.
+_BUILTIN_METHOD_MODULES: tuple[str, ...] = (
+    "autoround",
+    "fp8",
+)
+
+
 class QuantizationRegistry:
     """Registry for quantization methods.
+
+    Registration is lazy.
 
     Usage:
         # Register a new quantization method
@@ -28,6 +38,16 @@ class QuantizationRegistry:
 
     _methods: dict[str, Type["QuantizationMethod"]] = {}
     _initialized: bool = False
+
+    @classmethod
+    def _ensure_builtins_registered(cls) -> None:
+        """Import built-in method modules on first use.
+
+        Safe to call repeatedly: a guard short-circuits after the first run.
+        """
+        if cls._initialized:
+            return
+        cls.auto_register_all()
 
     @overload
     @classmethod
@@ -93,6 +113,7 @@ class QuantizationRegistry:
         Raises:
             KeyError: If method not found
         """
+        cls._ensure_builtins_registered()
         if name not in cls._methods:
             raise KeyError(
                 f"Unknown quantization method: {name!r}. "
@@ -110,6 +131,7 @@ class QuantizationRegistry:
         Returns:
             Detected quantization method instance, or None if no quantization
         """
+        cls._ensure_builtins_registered()
         quant_config = config.get("quantization_config")
         if quant_config is None:
             return None
@@ -161,19 +183,36 @@ class QuantizationRegistry:
     @classmethod
     def list_supported(cls) -> list[str]:
         """List all registered quantization methods."""
+        cls._ensure_builtins_registered()
         return list(cls._methods.keys())
 
     @classmethod
     def auto_register_all(cls) -> None:
         """Auto-register all built-in quantization methods.
 
-        Called once at module initialization.
+        Safe to call repeatedly: a guard short-circuits after the first
+        successful run.
         """
         if cls._initialized:
             return
 
-        # Import all built-in methods to trigger registration
-        from . import methods  # noqa: F401
+        package = "sglang_omni.quantization.methods"
+        for module_name in _BUILTIN_METHOD_MODULES:
+            try:
+                importlib.import_module(f".{module_name}", package=package)
+            except ImportError as e:
+                logger.warning(
+                    "Skipping quantization method %r: failed to import (%s). "
+                    "Install the required optional dependencies to enable it.",
+                    module_name,
+                    e,
+                )
+            except Exception:
+                logger.exception(
+                    "Unexpected error while importing quantization method %r; "
+                    "skipping it.",
+                    module_name,
+                )
 
         cls._initialized = True
         logger.info(f"Registered quantization methods: {list(cls._methods.keys())}")
