@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FP8 quantization method implementation."""
 
 from __future__ import annotations

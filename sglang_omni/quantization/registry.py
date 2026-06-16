@@ -190,8 +190,7 @@ class QuantizationRegistry:
     def auto_register_all(cls) -> None:
         """Auto-register all built-in quantization methods.
 
-        Safe to call repeatedly: a guard short-circuits after the first
-        successful run.
+        Safe to call repeatedly: a guard short-circuits after the first run.
         """
         if cls._initialized:
             return

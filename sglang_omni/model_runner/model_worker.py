@@ -119,7 +119,7 @@ class ModelWorker:
 
     def _configure_backend_policy(self) -> None:
         # First, use the unified quantization detection
-        method_name, quant_config = _detect_quantization_method(self.model_config)
+        method_name, _ = _detect_quantization_method(self.model_config)
 
         # Apply the quantization method's configuration if detected
         if method_name is not None:
@@ -129,7 +129,6 @@ class ModelWorker:
                 method_name,
             )
 
-        # Fall back to legacy policy for backwards compatibility
         effective_quantization = _apply_model_worker_backend_policy(
             self.server_args,
             self.model_config,
