@@ -7,10 +7,9 @@ import logging
 from typing import Any
 
 import torch
-from torch import nn
-
 from sglang.srt.layers.linear import ReplicatedLinear
 from sglang.srt.layers.quantization.fp8 import Fp8Config
+from torch import nn
 
 from sglang_omni.quantization.base import QuantizationMethod
 from sglang_omni.quantization.registry import QuantizationRegistry

@@ -4,7 +4,6 @@ SGLang-native Talker model for Qwen3-Omni compatiable with hf formatting.
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 from typing import Iterable, Optional, Tuple
 
