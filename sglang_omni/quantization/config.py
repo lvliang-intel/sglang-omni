@@ -31,14 +31,7 @@ class QuantizationConfig:
         cls,
         config: dict[str, Any],
     ) -> "QuantizationConfig | None":
-        """Parse quantization config from checkpoint config.json.
-
-        Args:
-            config: Model config dict
-
-        Returns:
-            QuantizationConfig or None if no quantization
-        """
+        """Parse quantization config from checkpoint config.json."""
         quant_config = config.get("quantization_config")
         if quant_config is None:
             return None
@@ -65,11 +58,7 @@ class QuantizationConfig:
         )
 
     def to_backend_config(self) -> dict[str, Any]:
-        """Convert to backend-specific configuration.
-
-        Returns:
-            Dict suitable for passing to backend
-        """
+        """Convert to backend-specific configuration."""
         return {
             **self.extra,
             "quant_method": self.method,
@@ -88,3 +77,10 @@ class QuantizationConfig:
     def is_per_channel(self) -> bool:
         """Check if quantization is per-channel."""
         return self.group_size == -1
+
+
+def detect_quantization_config(
+    config: dict[str, Any],
+) -> "QuantizationConfig | None":
+    """Detect and parse quantization config from a model config dict."""
+    return QuantizationConfig.from_checkpoint_config(config)

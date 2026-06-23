@@ -46,10 +46,6 @@ class TestFP8Quantization:
 
         assert FP8Quantization.detect(config) is False
 
-    def test_get_weight_block_size(self) -> None:
-        """Test getting weight block size."""
-        assert FP8Quantization.get_weight_block_size() == (128, 128)
-
     def test_preprocess_weights_regular(self) -> None:
         """Test preprocessing regular weights (no conversion)."""
         method = FP8Quantization()
@@ -132,13 +128,3 @@ class TestFP8Quantization:
             method.preprocess_weights(
                 "model.layers.0.mlp.gate_up_proj.weight_scale_inv", weight_scale_inv
             )
-
-    def test_weight_loader(self) -> None:
-        """Test weight loader copies data correctly."""
-        method = FP8Quantization()
-        param = torch.zeros(2, 2)
-        loaded_weight = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
-
-        method.weight_loader(param, loaded_weight)
-
-        assert torch.equal(param, loaded_weight)

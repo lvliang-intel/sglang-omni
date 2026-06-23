@@ -23,8 +23,8 @@ from sglang_omni.models.qwen3_omni.hf_config import (
     Qwen3OmniMoeTalkerConfig,
     Qwen3OmniMoeTalkerTextConfig,
 )
-from sglang_omni.models.qwen3_omni.quantization import (
-    convert_fp8_weight_scale_inv_for_sglang,
+from sglang_omni.quantization import (
+    resolve_weight_preprocessor,
 )
 from sglang_omni.sampling.seed import (
     SAMPLING_SEED_MASK,
@@ -1466,6 +1466,8 @@ class Qwen3OmniTalker(nn.Module):
             num_experts=self.config.text_config.num_experts,
         )
 
+        preprocess_weight = resolve_weight_preprocessor(self.config)
+
         for name, loaded_weight in weights:
             # Support both monolithic (talker.xxx) and split (xxx) checkpoints
             if name.startswith("talker."):
@@ -1480,9 +1482,7 @@ class Qwen3OmniTalker(nn.Module):
                     mapped = name.replace(weight_name, param_name)
                     param = params_dict.get(mapped)
                     if param is not None:
-                        loaded_weight = convert_fp8_weight_scale_inv_for_sglang(
-                            mapped, loaded_weight
-                        )
+                        loaded_weight = preprocess_weight(mapped, loaded_weight)
                         param.weight_loader(param, loaded_weight, shard_id)
                         handled = True
                         break
@@ -1495,9 +1495,7 @@ class Qwen3OmniTalker(nn.Module):
                     mapped = name.replace(weight_name, param_name)
                     param = params_dict.get(mapped)
                     if param is not None:
-                        loaded_weight = convert_fp8_weight_scale_inv_for_sglang(
-                            mapped, loaded_weight
-                        )
+                        loaded_weight = preprocess_weight(mapped, loaded_weight)
                         param.weight_loader(
                             param,
                             loaded_weight,
@@ -1513,7 +1511,5 @@ class Qwen3OmniTalker(nn.Module):
             # 3. Direct parameter loading
             param = params_dict.get(name)
             if param is not None:
-                loaded_weight = convert_fp8_weight_scale_inv_for_sglang(
-                    name, loaded_weight
-                )
+                loaded_weight = preprocess_weight(name, loaded_weight)
                 param.weight_loader(param, loaded_weight)

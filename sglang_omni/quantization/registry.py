@@ -70,14 +70,7 @@ class QuantizationRegistry:
         | Callable[[Type["QuantizationMethod"]], Type["QuantizationMethod"]]
     ):
         """Register a quantization method.
-
         Can be used as a decorator or called directly.
-
-        Args:
-            method_cls: Quantization method class (when called directly)
-
-        Returns:
-            The same class (for use as decorator)
         """
 
         def decorator(
@@ -102,17 +95,7 @@ class QuantizationRegistry:
 
     @classmethod
     def get(cls, name: str) -> Type["QuantizationMethod"]:
-        """Get a registered quantization method.
-
-        Args:
-            name: Quantization method name
-
-        Returns:
-            Quantization method class
-
-        Raises:
-            KeyError: If method not found
-        """
+        """Get a registered quantization method."""
         cls._ensure_builtins_registered()
         if name not in cls._methods:
             raise KeyError(
@@ -123,14 +106,7 @@ class QuantizationRegistry:
 
     @classmethod
     def detect(cls, config: dict[str, Any]) -> "QuantizationMethod | None":
-        """Detect quantization method from model config.
-
-        Args:
-            config: Model config dict (from config.json)
-
-        Returns:
-            Detected quantization method instance, or None if no quantization
-        """
+        """Detect quantization method from model config."""
         cls._ensure_builtins_registered()
         quant_config = config.get("quantization_config")
         if quant_config is None:
@@ -167,17 +143,7 @@ class QuantizationRegistry:
 
     @classmethod
     def detect_by_name(cls, method_name: str) -> "QuantizationMethod":
-        """Get a quantization method by name.
-
-        Args:
-            method_name: Name of the quantization method
-
-        Returns:
-            Quantization method instance
-
-        Raises:
-            KeyError: If method not found
-        """
+        """Get a quantization method by name."""
         return cls.get(method_name)()
 
     @classmethod

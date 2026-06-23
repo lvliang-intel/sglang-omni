@@ -36,7 +36,6 @@ QWEN3_OMNI_AUTOROUND_TEST_MODEL_PATH = os.environ.get(
 # Benchmark settings
 MAX_SAMPLES = 10
 CONCURRENCY = 4
-BENCHMARK_TIMEOUT = 300
 
 
 @dataclass
@@ -81,6 +80,12 @@ def _assert_benchmark_results(
 
     summary = results.get("summary", {})
     per_sample = results.get("per_sample", [])
+
+    # Ensure at least one request actually ran.
+    checks.check(
+        len(per_sample) > 0,
+        "Expected at least one benchmark sample, got none",
+    )
 
     # Check summary-level invariants
     checks.check(
@@ -174,13 +179,15 @@ def autoround_benchmark_results(
 @pytest.mark.benchmark
 def test_autoround_model_loads_and_responds(
     qwen3_omni_autoround_server: ManagedRouterHandle,
+    autoround_benchmark_results: QuantizationBenchmarkResult,
 ) -> None:
     """Test that AutoRound model loads and responds to requests."""
+    checks = MetricCheckCollector("AutoRound model load")
+
     # Check workers are healthy
     workers = router_get_json(qwen3_omni_autoround_server.port, "/workers")
     print_worker_snapshot("AutoRound /workers snapshot", workers)
 
-    checks = MetricCheckCollector("AutoRound model load")
     checks.check(
         workers["total_workers"] >= 1,
         f"Expected at least 1 worker, got {workers['total_workers']}",
@@ -200,6 +207,15 @@ def test_autoround_model_loads_and_responds(
     checks.check(
         QWEN3_OMNI_MODEL_NAME in model_ids,
         f"Expected model {QWEN3_OMNI_MODEL_NAME!r} in {model_ids}",
+    )
+
+    _assert_benchmark_results(
+        {
+            "summary": autoround_benchmark_results.summary,
+            "per_sample": autoround_benchmark_results.per_sample,
+        },
+        "AutoRound generation",
+        collector=checks,
     )
 
     checks.assert_all()
@@ -234,18 +250,6 @@ def test_quantization_unified_abstraction_autoround() -> None:
     detected = QuantizationRegistry.detect(config_dict)
     assert detected is not None
     assert detected.name == "auto-round"
-
-    # Test block name remapping
-    checkpoint_names = [
-        "transformer_blocks.0.attn.qkv.weight",
-        "transformer_blocks.1.mlp.weight",
-        "embed_tokens.weight",
-    ]
-    mapping = detected.remap_block_names(
-        checkpoint_names, config_dict["quantization_config"]
-    )
-    assert len(mapping) == 2  # Only transformer_blocks entries
-    assert "embed_tokens.weight" not in mapping
 
 
 if __name__ == "__main__":

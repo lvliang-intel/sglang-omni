@@ -22,24 +22,25 @@ Usage:
         method.configure(server_args, model_config)
 """
 
-from sglang_omni.quantization.base import QuantizationMethod, QuantizedLinearSpec
-from sglang_omni.quantization.config import QuantizationConfig
-from sglang_omni.quantization.loader import (
-    QuantizedWeightLoader,
-    bind_weight_loaders,
+from sglang_omni.quantization.base import QuantizationMethod
+from sglang_omni.quantization.config import (
+    QuantizationConfig,
     detect_quantization_config,
 )
 from sglang_omni.quantization.registry import QuantizationRegistry
+from sglang_omni.quantization.weight_preprocess import (
+    WeightPreprocessor,
+    resolve_weight_preprocessor,
+)
 
 # Built-in quantization methods are imported lazily on first use via
 # ``QuantizationRegistry._ensure_builtins_registered()``.
 
 __all__ = [
     "QuantizationMethod",
-    "QuantizedLinearSpec",
     "QuantizationConfig",
-    "QuantizedWeightLoader",
-    "bind_weight_loaders",
     "detect_quantization_config",
     "QuantizationRegistry",
+    "WeightPreprocessor",
+    "resolve_weight_preprocessor",
 ]

@@ -257,18 +257,7 @@ class TestQuantizationIntegrationE2E:
         # Step 2: Detect method
         detected = QuantizationRegistry.detect(config)
         assert detected is not None
-
-        # Step 3: Test block name remapping
-        checkpoint_names = [
-            "transformer_blocks.0.attn.qkv.weight",
-            "transformer_blocks.1.mlp.weight",
-            "embed_tokens.weight",
-        ]
-        mapping = detected.remap_block_names(
-            checkpoint_names, config["quantization_config"]
-        )
-        assert len(mapping) == 2  # Only transformer_blocks entries should be mapped
-        assert "embed_tokens.weight" not in mapping
+        assert detected.name == "auto-round"
 
     def test_unified_abstraction_all_methods(self) -> None:
         """Test that all registered methods work with unified abstraction."""
@@ -288,6 +277,4 @@ class TestQuantizationIntegrationE2E:
             assert hasattr(method_instance, "name")
             assert hasattr(method_instance, "detect")
             assert hasattr(method_instance, "configure")
-            assert hasattr(method_instance, "create_linear")
             assert hasattr(method_instance, "preprocess_weights")
-            assert hasattr(method_instance, "weight_loader")

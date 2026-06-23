@@ -25,78 +25,33 @@ Checkpoint format:
 from __future__ import annotations
 
 import logging
-import re
-from typing import TYPE_CHECKING, Any
-
-import torch
-from torch import nn
+from typing import Any
 
 from sglang_omni.quantization.base import QuantizationMethod
 from sglang_omni.quantization.registry import QuantizationRegistry
 
-try:
-    from sglang_omni.vendor.sglang.layers import AutoRoundLinear
-except ImportError:
-    AutoRoundLinear = None  # Not available in this sglang version
-
-if TYPE_CHECKING:
-    from torch import nn
-
 logger = logging.getLogger(__name__)
-
-# Mapping from checkpoint block patterns to runtime module patterns
-# These are common patterns used by various models
-DEFAULT_CHECKPOINT_TO_RUNTIME_MAP = {
-    # Qwen3-Omni Thinker
-    "model.layers": "model.layers",
-    "transformer_blocks": "model.layers",
-    # Qwen3-Omni Talker
-    "talker.model.layers": "model.layers",
-    # Generic patterns
-    "blocks": "blocks",
-    "h": "blocks",  # GPT-style models
-    "decoder.layers": "decoder.layers",
-}
 
 
 @QuantizationRegistry.register
 class AutoRoundQuantization(QuantizationMethod):
     """AutoRound quantization method.
 
-    AutoRound produces pre-quantized checkpoints using INT/FP weights
-    with optimized rounding. This class handles:
-    1. Detection of AutoRound quantized checkpoints
-    2. Block name remapping (checkpoint -> runtime)
-    3. Weight preprocessing during loading
-    4. Backend configuration
+    AutoRound produces pre-quantized checkpoints using INT/FP weights with
+    optimized rounding. This class only needs to:
+    1. Detect AutoRound quantized checkpoints.
+    2. Normalize the per-stage block names in ``configure()`` so SGLang's
+       native ``AutoRoundConfig`` targets the runtime module names.
+
+    Layer construction and weight loading are handled by SGLang's native
+    ``quant_config`` path and the model's own weight loaders.
     """
 
     name = "auto-round"
 
-    # Common quantization-aware parameter suffixes
-    QUANT_SUFFIXES = (
-        ".qweight",  # GPTQ-style quantized weights
-        ".g_idx",  # Group indices
-        ".scales",  # Quantization scales
-        ".bias",  # Bias
-        "_qweight",  # Alternative suffix
-        "_scales",  # Alternative suffix
-    )
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._block_mapping: dict[str, str] = {}
-
     @classmethod
     def detect(cls, config: dict[str, Any]) -> bool:
-        """Detect AutoRound quantization from config.
-
-        Args:
-            config: Model config dict
-
-        Returns:
-            True if AutoRound quantization is detected
-        """
+        """Detect AutoRound quantization from config."""
         quant_config = config.get("quantization_config", {})
         quant_method = str(quant_config.get("quant_method", "")).lower()
 
@@ -109,15 +64,7 @@ class AutoRoundQuantization(QuantizationMethod):
         )
 
     def configure(self, server_args: Any, model_config: Any) -> None:
-        """Configure SGLang for AutoRound quantized checkpoint.
-
-        AutoRound is checkpoint-driven, so minimal runtime configuration is needed.
-        The quantization is already baked into the checkpoint weights.
-
-        Args:
-            server_args: Server arguments
-            model_config: Model configuration
-        """
+        """Configure SGLang for AutoRound quantized checkpoint."""
         logger.info(
             "AutoRound quantized checkpoint detected. "
             "AutoRound is checkpoint-driven and requires no additional quantization flags."
@@ -139,13 +86,7 @@ class AutoRoundQuantization(QuantizationMethod):
     }
 
     def _normalize_block_names_for_stage(self, model_config: Any) -> None:
-        """Strip the active stage's checkpoint prefix from the quant config.
-
-        Mutates ``model_config.hf_config.quantization_config`` in place so SGLang's
-        AutoRoundConfig targets the runtime module names of the current stage.
-        Entries belonging to other sub-models are left untouched so they keep
-        failing to match (those stages stay unquantized, as the checkpoint intends).
-        """
+        """Strip the active stage's checkpoint prefix from the quant config."""
         hf_config = getattr(model_config, "hf_config", None)
         if hf_config is None:
             return
@@ -195,174 +136,3 @@ class AutoRoundQuantization(QuantizationMethod):
             block_list,
             normalized_blocks,
         )
-
-    def create_linear(
-        self,
-        in_features: int,
-        out_features: int,
-        bias: bool = False,
-        **kwargs: Any,
-    ) -> nn.Module:
-        """Create AutoRound quantized linear layer.
-
-        Args:
-            in_features: Input feature dimension
-            out_features: Output feature dimension
-            bias: Whether to include bias
-            **kwargs: Additional arguments (e.g., group_size, bits)
-
-        Returns:
-            AutoRound quantized linear layer, or fallback linear
-        """
-        if AutoRoundLinear is not None:
-            return AutoRoundLinear(
-                in_features,
-                out_features,
-                bias=bias,
-                **kwargs,
-            )
-        else:
-            logger.warning(
-                "AutoRoundLinear not available in SGLang. "
-                "Please ensure AutoRound kernels are installed. "
-                "Using standard linear as fallback."
-            )
-            return nn.Linear(in_features, out_features, bias=bias)
-
-    def remap_block_names(
-        self,
-        checkpoint_names: list[str],
-        config: dict[str, Any],
-    ) -> dict[str, str]:
-        """Remap checkpoint block names to runtime module names.
-
-        AutoRound checkpoints may use different naming conventions than
-        the runtime model. This method builds a mapping based on the
-        block_name_to_quantize config.
-
-        Args:
-            checkpoint_names: List of parameter names from checkpoint
-            config: Quantization config dict
-
-        Returns:
-            Mapping from checkpoint names to runtime names
-        """
-        self._block_mapping = {}
-
-        block_patterns = config.get("block_name_to_quantize", "")
-        if isinstance(block_patterns, str):
-            block_patterns = [p.strip() for p in block_patterns.split(",") if p.strip()]
-        elif not isinstance(block_patterns, list):
-            block_patterns = []
-
-        if not block_patterns:
-            logger.debug("No block_name_to_quantize specified, skipping remapping")
-            return {}
-
-        for name in checkpoint_names:
-            for pattern in block_patterns:
-                if pattern in name:
-                    # Extract the layer/block index and remaining path
-                    mapped_name = self._remap_single_name(name, pattern)
-                    if mapped_name:
-                        self._block_mapping[name] = mapped_name
-                    break
-
-        logger.debug(
-            f"AutoRound block name mapping: {len(self._block_mapping)} entries"
-        )
-        return self._block_mapping
-
-    def _remap_single_name(self, name: str, pattern: str) -> str | None:
-        """Remap a single parameter name based on the pattern.
-
-        Args:
-            name: Full parameter name from checkpoint
-            pattern: Block pattern to match
-
-        Returns:
-            Remapped name, or None if no mapping needed
-        """
-        # Get the runtime prefix from our mapping
-        runtime_prefix = DEFAULT_CHECKPOINT_TO_RUNTIME_MAP.get(pattern, pattern)
-
-        # Find the position of the pattern in the name
-        idx = name.find(pattern)
-        if idx == -1:
-            return None
-
-        # Extract everything after the pattern (layer index, etc.)
-        remaining = name[idx + len(pattern) :]
-
-        # Extract layer index (e.g., ".0." -> "0")
-        layer_match = re.match(r"\.(\d+)", remaining)
-        if layer_match:
-            layer_idx = layer_match.group(1)
-            rest = remaining[len(layer_match.group(0)) :]
-            return f"{runtime_prefix}.{layer_idx}{rest}"
-
-        # No layer index, just append the rest
-        return f"{runtime_prefix}{remaining}"
-
-    def preprocess_weights(
-        self,
-        target_name: str,
-        loaded_weight: torch.Tensor,
-    ) -> torch.Tensor:
-        """Preprocess AutoRound quantized weights during loading.
-
-        For AutoRound, the weights are already quantized in the checkpoint.
-        This method handles any necessary format conversions.
-
-        Args:
-            target_name: Parameter name in checkpoint
-            loaded_weight: Raw weight tensor from checkpoint
-
-        Returns:
-            Processed weight tensor
-        """
-        # AutoRound weights are typically in GPTQ-compatible format
-        # No preprocessing needed unless there's a specific format difference
-        return loaded_weight
-
-    def weight_loader(
-        self,
-        param: torch.Tensor,
-        loaded_weight: torch.Tensor,
-        **kwargs: Any,
-    ) -> None:
-        """Load AutoRound weights."""
-        param.data.copy_(loaded_weight)
-
-    def get_quantized_param_names(self) -> tuple[str, ...]:
-        """Get the suffixes that indicate quantized parameters.
-
-        Returns:
-            Tuple of quantized parameter suffixes
-        """
-        return self.QUANT_SUFFIXES
-
-    def extract_checkpoint_block_mapping(
-        self, config: dict[str, Any]
-    ) -> dict[str, str]:
-        """Extract block mapping from quantization config.
-
-        Args:
-            config: Quantization config dict
-
-        Returns:
-            Mapping from checkpoint patterns to runtime patterns
-        """
-        mapping = {}
-
-        block_patterns = config.get("block_name_to_quantize", "")
-        if isinstance(block_patterns, str):
-            block_patterns = [p.strip() for p in block_patterns.split(",") if p.strip()]
-
-        for pattern in block_patterns:
-            if pattern in DEFAULT_CHECKPOINT_TO_RUNTIME_MAP:
-                mapping[pattern] = DEFAULT_CHECKPOINT_TO_RUNTIME_MAP[pattern]
-            else:
-                mapping[pattern] = pattern
-
-        return mapping

@@ -36,7 +36,6 @@ QWEN3_OMNI_FP8_TEST_MODEL_PATH = os.environ.get(
 # Benchmark settings
 MAX_SAMPLES = 10
 CONCURRENCY = 4
-BENCHMARK_TIMEOUT = 300
 
 
 @dataclass
@@ -81,6 +80,12 @@ def _assert_benchmark_results(
 
     summary = results.get("summary", {})
     per_sample = results.get("per_sample", [])
+
+    # Ensure at least one request actually ran.
+    checks.check(
+        len(per_sample) > 0,
+        "Expected at least one benchmark sample, got none",
+    )
 
     # Check summary-level invariants
     checks.check(
@@ -178,13 +183,15 @@ def fp8_benchmark_results(
 @pytest.mark.benchmark
 def test_fp8_model_loads_and_responds(
     qwen3_omni_fp8_server: ManagedRouterHandle,
+    fp8_benchmark_results: FP8QuantizationBenchmarkResult,
 ) -> None:
     """Test that FP8 model loads and responds to requests."""
+    checks = MetricCheckCollector("FP8 model load")
+
     # Check workers are healthy
     workers = router_get_json(qwen3_omni_fp8_server.port, "/workers")
     print_worker_snapshot("FP8 /workers snapshot", workers)
 
-    checks = MetricCheckCollector("FP8 model load")
     checks.check(
         workers["total_workers"] >= 1,
         f"Expected at least 1 worker, got {workers['total_workers']}",
@@ -204,6 +211,15 @@ def test_fp8_model_loads_and_responds(
     checks.check(
         QWEN3_OMNI_MODEL_NAME in model_ids,
         f"Expected model {QWEN3_OMNI_MODEL_NAME!r} in {model_ids}",
+    )
+
+    _assert_benchmark_results(
+        {
+            "summary": fp8_benchmark_results.summary,
+            "per_sample": fp8_benchmark_results.per_sample,
+        },
+        "FP8 generation",
+        collector=checks,
     )
 
     checks.assert_all()

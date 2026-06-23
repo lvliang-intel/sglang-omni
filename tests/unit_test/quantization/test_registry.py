@@ -7,7 +7,6 @@ import importlib
 import sys
 
 import pytest
-from torch import nn
 
 from sglang_omni.quantization.base import QuantizationMethod
 from sglang_omni.quantization.registry import QuantizationRegistry
@@ -26,9 +25,6 @@ class TestQuantizationMethod(QuantizationMethod):
     def configure(self, server_args, model_config):
         pass
 
-    def create_linear(self, in_features, out_features, bias=False, **kwargs):
-        return nn.Linear(in_features, out_features, bias=bias)
-
 
 class AnotherTestMethod(QuantizationMethod):
     """Another test implementation."""
@@ -43,9 +39,6 @@ class AnotherTestMethod(QuantizationMethod):
 
     def configure(self, server_args, model_config):
         pass
-
-    def create_linear(self, in_features, out_features, bias=False, **kwargs):
-        return nn.Linear(in_features, out_features, bias=bias)
 
 
 class TestQuantizationRegistry:
@@ -80,9 +73,6 @@ class TestQuantizationRegistry:
             def configure(self, server_args, model_config):
                 pass
 
-            def create_linear(self, in_features, out_features, bias=False, **kwargs):
-                return nn.Linear(in_features, out_features, bias=bias)
-
         assert "decorator-test" in QuantizationRegistry.list_supported()
 
     def test_register_decorator_with_parens(self) -> None:
@@ -101,9 +91,6 @@ class TestQuantizationRegistry:
 
             def configure(self, server_args, model_config):
                 pass
-
-            def create_linear(self, in_features, out_features, bias=False, **kwargs):
-                return nn.Linear(in_features, out_features, bias=bias)
 
         assert "decorator-parens-test" in QuantizationRegistry.list_supported()
 
@@ -244,9 +231,6 @@ class TestQuantizationRegistry:
 
             def configure(self, server_args, model_config):
                 pass
-
-            def create_linear(self, in_features, out_features, bias=False, **kwargs):
-                return nn.Linear(in_features, out_features, bias=bias)
 
         with pytest.raises(ValueError, match="must define a non-empty 'name'"):
             QuantizationRegistry.register(NoNameMethod)

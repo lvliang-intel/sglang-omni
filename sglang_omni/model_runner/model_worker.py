@@ -604,6 +604,12 @@ def _detect_quantization_method(
     if quant_config is None:
         return None, None
 
+    # Ensure built-in quantization methods are registered before detecting.
+    # Must be called here (not only in _apply_quantization_method_config) because
+    # _detect_quantization_method may be called independently and must produce
+    # a result even when the config dict is present.
+    QuantizationRegistry._ensure_builtins_registered()
+
     # Resolve to the canonical registered method via the registry.
 
     method_instance = QuantizationRegistry.detect(config_dict)
@@ -697,27 +703,6 @@ def _apply_quantization_method_config(
         logger.info(f"Applied quantization method configuration: {method_name}")
     except KeyError:
         logger.warning(f"Unknown quantization method: {method_name}")
-
-
-def _get_quantization_config_for_load_weights(
-    model_config: ModelConfig,
-) -> "QuantizationConfig | None":
-    """Get QuantizationConfig for weight loading.
-
-    This is used by model components that need to know about
-    quantization during weight loading.
-
-    Args:
-        model_config: Model configuration
-
-    Returns:
-        QuantizationConfig or None
-    """
-    config_dict = _build_config_dict(model_config)
-    if config_dict is None:
-        return None
-
-    return QuantizationConfig.from_checkpoint_config(config_dict)
 
 
 def _initialize_model_worker_backend_globals(
