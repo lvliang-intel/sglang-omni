@@ -703,9 +703,8 @@ Notes:
   checkpoint). Same **`omni`** venv and 2-GPU router DP=2 as TTS stages.
   Stage 1 imports **`QWEN3_ASR_WER_CONCURRENCY`** from `tests.utils` (32),
   matching TTS WER and talker WER transcribe fan-out.
-- Sample count for strict audit: **`SEEDTTS_ASR_CORRECTNESS_SAMPLES`**
-  (via `expected_samples` in `stages.yaml`), JSON `summary.evaluated` /
-  `summary.total_samples`.
+- Sample count for strict audit: **`SEEDTTS_ASR_CORRECTNESS_SAMPLES`** (=1088),
+  JSON `summary.evaluated` / `summary.total_samples`.
 - **CI slack:** tune.py writes P95 reference constants only; assertions use
   derived `*_THRESHOLD` values with **10% slack** (`THRESHOLD_SLACK_HIGHER=0.9`,
   `THRESHOLD_SLACK_LOWER=1.1` via `apply_wer_slack()` for WER). Do **not**
