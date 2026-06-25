@@ -1166,7 +1166,7 @@ class Qwen3OmniTalker(nn.Module):
         return sampled
 
     def _build_static_sampling_info(self, batch_size: int) -> SamplingBatchInfo:
-        kwargs = dict(
+        return SamplingBatchInfo(
             temperatures=self._sampling_temperatures[:batch_size],
             top_ps=self._sampling_top_ps[:batch_size],
             top_ks=self._sampling_top_ks[:batch_size],
@@ -1182,6 +1182,9 @@ class Qwen3OmniTalker(nn.Module):
             vocab_mask=None,
             apply_mask_func=None,
             penalizer_orchestrator=None,
+            # Note:(Chenchen Hong) SGLang 0.5.12.post1 replaced the single
+            # acc_linear_penalties field with acc_additive_penalties /
+            # acc_scaling_penalties (both default None); leave them unset.
             has_custom_logit_processor=False,
             custom_params=None,
             custom_logit_processor=None,
@@ -1189,7 +1192,6 @@ class Qwen3OmniTalker(nn.Module):
             device="cuda",
             logit_bias=None,
         )
-        return SamplingBatchInfo(**kwargs)
 
     def _extend_last_index(
         self,
