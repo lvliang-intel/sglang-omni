@@ -601,7 +601,7 @@ def _detect_quantization_method(
 
     # Use the unified quantization detection
     quant_config = QuantizationConfig.from_checkpoint_config(config_dict)
-    if quant_config is None:
+    if quant_config is None or not quant_config.method:
         return None, None
 
     # Ensure built-in quantization methods are registered before detecting.

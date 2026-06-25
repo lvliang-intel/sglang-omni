@@ -117,7 +117,7 @@ class QuantizationRegistry:
             return None
 
         # Normalize method name for matching
-        normalized = quant_method.lower().replace("-", "_").replace(" ", "_")
+        normalized = str(quant_method).lower().replace("-", "_").replace(" ", "_")
 
         # Try exact match first
         for name, method_cls in cls._methods.items():
