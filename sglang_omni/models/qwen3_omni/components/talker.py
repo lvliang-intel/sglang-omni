@@ -22,9 +22,7 @@ from sglang_omni.models.qwen3_omni.hf_config import (
     Qwen3OmniMoeTalkerConfig,
     Qwen3OmniMoeTalkerTextConfig,
 )
-from sglang_omni.quantization import (
-    resolve_weight_preprocessor,
-)
+from sglang_omni.quantization import resolve_weight_preprocessor
 from sglang_omni.sampling.seed import (
     SAMPLING_SEED_MASK,
     derive_sampling_seed,

@@ -117,9 +117,7 @@ class TestAutoRoundConfigureStagePrefix:
             "quant_method": "auto-round",
             "block_name_to_quantize": "thinker.model.layers",
         }
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -157,15 +155,11 @@ class TestAutoRoundConfigureStagePrefix:
             "quant_method": "auto-round",
             "block_name_to_quantize": "thinker.model.layers,thinker.model.experts",
         }
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
-        assert (
-            quant_config["block_name_to_quantize"] == "model.layers,model.experts"
-        )
+        assert quant_config["block_name_to_quantize"] == "model.layers,model.experts"
 
     def test_normalizes_block_name_list_input(self) -> None:
         """A list-valued ``block_name_to_quantize`` is normalized and serialized."""
@@ -173,9 +167,7 @@ class TestAutoRoundConfigureStagePrefix:
             "quant_method": "auto-round",
             "block_name_to_quantize": ["thinker.model.layers", "model.shared"],
         }
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -191,9 +183,7 @@ class TestAutoRoundConfigureStagePrefix:
                 "thinker.model.layers.1": {"bits": 4},
             },
         }
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -208,9 +198,7 @@ class TestAutoRoundConfigureStagePrefix:
             "quant_method": "auto-round",
             "block_name_to_quantize": "model.layers",
         }
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -236,20 +224,15 @@ class TestAutoRoundConfigureStagePrefix:
 
     def test_non_dict_quantization_config_is_noop(self) -> None:
         """A non-dict ``quantization_config`` is ignored without raising."""
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", "not-a-dict"
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", "not-a-dict")
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
     def test_missing_block_name_to_quantize_is_noop(self) -> None:
         """No ``block_name_to_quantize`` key leaves the config unchanged."""
         quant_config = {"quant_method": "auto-round"}
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
         assert quant_config == {"quant_method": "auto-round"}
-
