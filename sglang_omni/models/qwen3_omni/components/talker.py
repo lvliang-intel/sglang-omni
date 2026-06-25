@@ -4,7 +4,6 @@ SGLang-native Talker model for Qwen3-Omni compatiable with hf formatting.
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Iterable, Optional, Tuple
 
 import torch
@@ -46,14 +45,6 @@ from sglang_omni.vendor.sglang.layers import (
 from sglang_omni.vendor.sglang.models import apply_qk_norm
 from sglang_omni.vendor.sglang.server_args import get_global_server_args
 from sglang_omni.vendor.sglang.utils import make_layers
-
-# Stay compatible across releases that renamed/split optional fields such as
-# ``acc_linear_penalties`` on SGLang v0.5.8.
-_SAMPLING_BATCH_INFO_FIELDS: frozenset[str] = (
-    frozenset(f.name for f in dataclasses.fields(SamplingBatchInfo))
-    if dataclasses.is_dataclass(SamplingBatchInfo)
-    else frozenset()
-)
 
 
 def _bind_default_weight_loaders(module: nn.Module) -> None:
@@ -1193,9 +1184,6 @@ class Qwen3OmniTalker(nn.Module):
             vocab_mask=None,
             apply_mask_func=None,
             penalizer_orchestrator=None,
-            # Note:(Chenchen Hong) SGLang 0.5.12.post1 replaced the single
-            # acc_linear_penalties field with acc_additive_penalties /
-            # acc_scaling_penalties (both default None); leave them unset.
             has_custom_logit_processor=False,
             custom_params=None,
             custom_logit_processor=None,
@@ -1203,12 +1191,6 @@ class Qwen3OmniTalker(nn.Module):
             device="cuda",
             logit_bias=None,
         )
-        # ``acc_linear_penalties`` exists on SGLang v0.5.8 but was split
-        # into ``acc_additive_penalties``/``acc_scaling_penalties`` on newer
-        # ones. Only pass it when the running SGLang actually defines it so the
-        # code stays compatible across both versions.
-        if "acc_linear_penalties" in _SAMPLING_BATCH_INFO_FIELDS:
-            kwargs["acc_linear_penalties"] = None
         return SamplingBatchInfo(**kwargs)
 
     def _extend_last_index(
