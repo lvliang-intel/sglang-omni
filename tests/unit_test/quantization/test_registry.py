@@ -221,16 +221,95 @@ class TestQuantizationRegistry:
                 else:
                     sys.modules[module_name] = original_module
 
-    def test_register_without_name_raises(self) -> None:
-        """Test that registering without a name raises ValueError."""
+    def test_exact_name_match_requires_detect_confirmation(self) -> None:
+        """Exact name match is rejected if detect() returns False.
 
-        class NoNameMethod(QuantizationMethod):
-            @classmethod
-            def detect(cls, config):
-                return False
+        This prevents FP8-like names from matching without the required
+        weight_block_size field.
+        """
+        from sglang_omni.quantization.methods.fp8 import FP8Quantization
 
-            def configure(self, server_args, model_config):
-                pass
+        QuantizationRegistry._methods.clear()
+        QuantizationRegistry._initialized = False
+        QuantizationRegistry.register(FP8Quantization)
 
-        with pytest.raises(ValueError, match="must define a non-empty 'name'"):
-            QuantizationRegistry.register(NoNameMethod)
+        # FP8 without weight_block_size should NOT be detected
+        # even though the name matches
+        config = {
+            "quantization_config": {
+                "quant_method": "fp8",
+                "bits": 8,
+                # Missing weight_block_size
+            }
+        }
+
+        result = QuantizationRegistry.detect(config)
+
+        assert result is None
+
+    def test_exact_name_match_succeeds_when_detect_passes(self) -> None:
+        """Exact name match succeeds when detect() confirms."""
+        from sglang_omni.quantization.methods.fp8 import FP8Quantization
+
+        QuantizationRegistry._methods.clear()
+        QuantizationRegistry._initialized = False
+        QuantizationRegistry.register(FP8Quantization)
+
+        # FP8 with weight_block_size should be detected
+        config = {
+            "quantization_config": {
+                "quant_method": "fp8",
+                "bits": 8,
+                "weight_block_size": [128, 128],
+            }
+        }
+
+        result = QuantizationRegistry.detect(config)
+
+        assert result is not None
+        assert isinstance(result, FP8Quantization)
+
+    def test_detect_warns_when_name_matches_but_detection_fails(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warning is logged when method name matches but detection fails."""
+        from sglang_omni.quantization.methods.fp8 import FP8Quantization
+
+        QuantizationRegistry._methods.clear()
+        QuantizationRegistry._initialized = False
+        QuantizationRegistry.register(FP8Quantization)
+
+        config = {
+            "quantization_config": {
+                "quant_method": "fp8",
+                # Missing weight_block_size
+            }
+        }
+
+        QuantizationRegistry.detect(config)
+
+        assert any(
+            "did not confirm support" in record.message
+            for record in caplog.records
+        )
+
+    def test_detect_warns_when_no_method_matches(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warning is logged when no registered method matches."""
+        QuantizationRegistry._methods.clear()
+        QuantizationRegistry._initialized = False
+        QuantizationRegistry.register(TestQuantizationMethod)
+
+        config = {
+            "quantization_config": {
+                "quant_method": "completely-unknown-method",
+            }
+        }
+
+        QuantizationRegistry.detect(config)
+
+        assert any(
+            "No registered quantization method matches" in record.message
+            for record in caplog.records
+        )

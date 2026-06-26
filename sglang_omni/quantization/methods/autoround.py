@@ -54,14 +54,7 @@ class AutoRoundQuantization(QuantizationMethod):
         """Detect AutoRound quantization from config."""
         quant_config = config.get("quantization_config", {})
         quant_method = str(quant_config.get("quant_method", "")).lower()
-
-        # Match various AutoRound naming conventions
-        return quant_method in (
-            "auto-round",
-            "autoround",
-            "auto_round",
-            "inc",  # Intel Neural Compressor
-        )
+        return quant_method == "auto-round"
 
     def configure(self, server_args: Any, model_config: Any) -> None:
         """Configure SGLang for AutoRound quantized checkpoint."""
@@ -85,14 +78,37 @@ class AutoRoundQuantization(QuantizationMethod):
         "Qwen3OmniTalker": "talker.",
     }
 
+    @staticmethod
+    def _to_mutable_dict(quant_config: Any) -> dict[str, Any] | None:
+        """Convert a quantization_config to a mutable dict if possible."""
+        if isinstance(quant_config, dict):
+            return quant_config
+        if hasattr(quant_config, "to_dict"):
+            return quant_config.to_dict()
+        if hasattr(quant_config, "__dict__"):
+            return vars(quant_config)
+        return None
+
     def _normalize_block_names_for_stage(self, model_config: Any) -> None:
         """Strip the active stage's checkpoint prefix from the quant config."""
         hf_config = getattr(model_config, "hf_config", None)
         if hf_config is None:
             return
-        quant_config = getattr(hf_config, "quantization_config", None)
-        if not isinstance(quant_config, dict):
+        quant_config_raw = getattr(hf_config, "quantization_config", None)
+        if quant_config_raw is None:
             return
+
+        quant_config = self._to_mutable_dict(quant_config_raw)
+        if quant_config is None:
+            raise TypeError(
+                f"AutoRound was detected but quantization_config has an "
+                f"unsupported type {type(quant_config_raw).__name__!r}. "
+                f"Expected dict or object with to_dict()/__dict__."
+            )
+
+        # If we created a new dict from a non-dict object, we must write it
+        # back after mutation so downstream consumers see the normalized names.
+        needs_writeback = quant_config is not quant_config_raw
 
         arch_list = getattr(hf_config, "architectures", None) or []
         arch = arch_list[0] if arch_list else None
@@ -129,6 +145,9 @@ class AutoRoundQuantization(QuantizationMethod):
                 key.replace(escaped_prefix, "").replace(stage_prefix, ""): value
                 for key, value in extra_config.items()
             }
+
+        if needs_writeback:
+            setattr(hf_config, "quantization_config", quant_config)
 
         logger.info(
             "Normalized AutoRound block_name_to_quantize for stage %s: %s -> %s",

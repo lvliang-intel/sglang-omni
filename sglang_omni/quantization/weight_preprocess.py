@@ -69,9 +69,7 @@ def _resolve_active_method(config: Any) -> "QuantizationMethod | None":
 
 def resolve_weight_preprocessor(config: Any = None) -> WeightPreprocessor:
     """Return the active quantization method's ``preprocess_weights`` callable."""
-    from sglang_omni.quantization.methods.fp8 import FP8Quantization
-
     method = _resolve_active_method(config)
     if method is None:
-        method = FP8Quantization()
+        return lambda name, weight: weight
     return method.preprocess_weights

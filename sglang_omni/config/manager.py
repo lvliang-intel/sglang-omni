@@ -208,10 +208,16 @@ def _sync_stage_parallelism_aliases(
     for index, stage in enumerate(stages):
         if not isinstance(stage, dict):
             continue
-        tp_size_key = f"stages.{index}.tp_size"
-        parallelism_key = f"stages.{index}.parallelism.tp"
-        has_tp_size_override = tp_size_key in override_keys
-        has_parallelism_override = parallelism_key in override_keys
+        segments = [str(index)]
+        stage_name = stage.get("name")
+        if isinstance(stage_name, str):
+            segments.append(stage_name)
+        tp_size_keys = {f"stages.{segment}.tp_size" for segment in segments}
+        parallelism_keys = {
+            f"stages.{segment}.parallelism.tp" for segment in segments
+        }
+        has_tp_size_override = bool(tp_size_keys & override_keys)
+        has_parallelism_override = bool(parallelism_keys & override_keys)
         if has_tp_size_override == has_parallelism_override:
             continue
 

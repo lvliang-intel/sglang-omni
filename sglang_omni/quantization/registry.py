@@ -119,27 +119,37 @@ class QuantizationRegistry:
         # Normalize method name for matching
         normalized = str(quant_method).lower().replace("-", "_").replace(" ", "_")
 
-        # Try exact match first
+        name_matched_method: Type["QuantizationMethod"] | None = None
         for name, method_cls in cls._methods.items():
             name_normalized = name.lower().replace("-", "_").replace(" ", "_")
             if name_normalized == normalized:
-                return method_cls()
+                name_matched_method = method_cls
+                if cls._detect(method_cls, config):
+                    return method_cls()
+                break
 
         # Fall back to detection by class
         for method_cls in cls._methods.values():
-            try:
-                if method_cls.detect(config):
-                    return method_cls()
-            except Exception:
-                logger.debug(
-                    f"Detection by class failed for {method_cls.name}, "
-                    "continuing to next method",
-                    exc_info=True,
-                )
+            if method_cls is name_matched_method:
                 continue
+            if cls._detect(method_cls, config):
+                return method_cls()
 
-        logger.debug(f"No registered quantization method matches: {quant_method}")
+        if name_matched_method is not None:
+            logger.warning(
+                "Quantization method %r is known but %r did not confirm support "
+                "for this checkpoint variant.",
+                quant_method,
+                name_matched_method.name,
+            )
+        else:
+            logger.warning(f"No registered quantization method matches: {quant_method}")
         return None
+
+    @staticmethod
+    def _detect(method_cls: Type["QuantizationMethod"], config: dict[str, Any]) -> bool:
+        """Call a method's detector."""
+        return bool(method_cls.detect(config))
 
     @classmethod
     def detect_by_name(cls, method_name: str) -> "QuantizationMethod":
@@ -171,12 +181,6 @@ class QuantizationRegistry:
                     "Install the required optional dependencies to enable it.",
                     module_name,
                     e,
-                )
-            except Exception:
-                logger.exception(
-                    "Unexpected error while importing quantization method %r; "
-                    "skipping it.",
-                    module_name,
                 )
 
         cls._initialized = True

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from sglang_omni.quantization.methods.autoround import AutoRoundQuantization
@@ -32,39 +33,6 @@ class TestAutoRoundQuantization:
                 "quant_method": "auto-round",
                 "bits": 4,
                 "group_size": 128,
-            }
-        }
-
-        assert AutoRoundQuantization.detect(config) is True
-
-    def test_detect_autoround(self) -> None:
-        """Test detecting 'autoround' quantization."""
-        config = {
-            "quantization_config": {
-                "quant_method": "autoround",
-                "bits": 4,
-            }
-        }
-
-        assert AutoRoundQuantization.detect(config) is True
-
-    def test_detect_auto_round_with_underscore(self) -> None:
-        """Test detecting 'auto_round' quantization."""
-        config = {
-            "quantization_config": {
-                "quant_method": "auto_round",
-                "bits": 4,
-            }
-        }
-
-        assert AutoRoundQuantization.detect(config) is True
-
-    def test_detect_inc(self) -> None:
-        """Test detecting 'inc' (Intel Neural Compressor) quantization."""
-        config = {
-            "quantization_config": {
-                "quant_method": "inc",
-                "bits": 4,
             }
         }
 
@@ -222,11 +190,16 @@ class TestAutoRoundConfigureStagePrefix:
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
-    def test_non_dict_quantization_config_is_noop(self) -> None:
-        """A non-dict ``quantization_config`` is ignored without raising."""
+    def test_non_dict_quantization_config_raises(self) -> None:
+        """A non-dict ``quantization_config`` raises TypeError.
+
+        AutoRound's ``block_name_to_quantize`` normalization is required for
+        correctness, so we must fail loudly when the config shape is unsupported.
+        """
         model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", "not-a-dict")
 
-        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+        with pytest.raises(TypeError, match="unsupported type"):
+            AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
     def test_missing_block_name_to_quantize_is_noop(self) -> None:
         """No ``block_name_to_quantize`` key leaves the config unchanged."""
@@ -236,3 +209,95 @@ class TestAutoRoundConfigureStagePrefix:
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
         assert quant_config == {"quant_method": "auto-round"}
+
+
+class TestAutoRoundObjectShapedConfig:
+    """Tests for AutoRound handling object-shaped quantization configs."""
+
+    def test_object_quant_config_converted_and_written_back(self) -> None:
+        """Object-shaped config (__dict__) is converted and written back."""
+        from types import SimpleNamespace
+
+        # Create an object-shaped quantization config with __dict__
+        quant_config = SimpleNamespace(
+            quant_method="auto-round",
+            block_name_to_quantize="thinker.model.layers",
+            bits=4,
+        )
+        model_config = _make_model_config(
+            "Qwen3OmniThinkerForCausalLM", quant_config
+        )
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        # After writeback, hf_config.quantization_config should be a dict
+        assert isinstance(model_config.hf_config.quantization_config, dict)
+        assert model_config.hf_config.quantization_config["block_name_to_quantize"] == (
+            "model.layers"
+        )
+
+    def test_object_with_to_dict_converted_and_written_back(self) -> None:
+        """Object with to_dict() is converted to a dict and written back."""
+
+        class HasToDict:
+            def __init__(self):
+                self.quant_method = "auto-round"
+                self.block_name_to_quantize = "thinker.model.layers"
+                self.bits = 4
+
+            def to_dict(self):
+                return {
+                    "quant_method": self.quant_method,
+                    "block_name_to_quantize": self.block_name_to_quantize,
+                    "bits": self.bits,
+                }
+
+        quant_config = HasToDict()
+        model_config = _make_model_config(
+            "Qwen3OmniThinkerForCausalLM", quant_config
+        )
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        # to_dict() objects should be converted and the dict written back
+        # to hf_config.quantization_config
+        assert isinstance(model_config.hf_config.quantization_config, dict)
+        assert model_config.hf_config.quantization_config["block_name_to_quantize"] == (
+            "model.layers"
+        )
+
+    def test_unsupported_quant_config_type_raises(self) -> None:
+        """Unsupported quantization config type raises TypeError."""
+        from types import SimpleNamespace
+
+        # A list is not a supported type
+        quant_config = ["not", "a", "dict"]
+        model_config = _make_model_config(
+            "Qwen3OmniThinkerForCausalLM", quant_config
+        )
+
+        with pytest.raises(TypeError, match="unsupported type"):
+            AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+    def test_extra_config_with_object_quant_config(self) -> None:
+        """extra_config keys are normalized even for object-shaped configs."""
+        from types import SimpleNamespace
+
+        quant_config = SimpleNamespace(
+            quant_method="auto-round",
+            block_name_to_quantize="thinker.model.layers",
+            extra_config={
+                r"thinker\.model\.layers\.0": {"bits": 8},
+                "thinker.model.layers.1": {"bits": 4},
+            },
+        )
+        model_config = _make_model_config(
+            "Qwen3OmniThinkerForCausalLM", quant_config
+        )
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        assert quant_config.extra_config == {
+            r"model\.layers\.0": {"bits": 8},
+            "model.layers.1": {"bits": 4},
+        }

@@ -128,3 +128,46 @@ class TestFP8Quantization:
             method.preprocess_weights(
                 "model.layers.0.mlp.gate_up_proj.weight_scale_inv", weight_scale_inv
             )
+
+
+class TestFP8NoBackendPolicy:
+    """Tests verifying FP8Quantization no longer owns backend policy."""
+
+    def test_configure_is_noop(self) -> None:
+        """FP8Quantization.configure() should be a no-op (no backend policy)."""
+        method = FP8Quantization()
+        server_args = {"moe_runner_backend": "auto", "fp8_gemm_runner_backend": "auto"}
+
+        # Should not raise and should not modify server_args
+        method.configure(server_args, None)
+
+        # server_args should be unchanged (still a dict)
+        assert server_args["moe_runner_backend"] == "auto"
+        assert server_args["fp8_gemm_runner_backend"] == "auto"
+
+    def test_no_backend_helper_methods(self) -> None:
+        """Backend-related helper methods should be removed."""
+        method = FP8Quantization()
+
+        # These helper methods were removed
+        assert not hasattr(method, "_model_has_moe")
+        assert not hasattr(method, "_model_has_native_fp8_block_quant")
+        assert not hasattr(method, "_is_cutlass_supported")
+
+    def test_focuses_on_detection_and_preprocessing(self) -> None:
+        """FP8Quantization should focus on detection and weight preprocessing."""
+        method = FP8Quantization()
+
+        # Should still have detection
+        config = {
+            "quantization_config": {
+                "quant_method": "fp8",
+                "weight_block_size": [128, 128],
+            }
+        }
+        assert method.detect(config) is True
+
+        # Should still have preprocessing
+        weight = torch.tensor([2.0])
+        result = method.preprocess_weights("layer.weight_scale_inv", weight)
+        assert torch.allclose(result, torch.tensor([0.5]))
