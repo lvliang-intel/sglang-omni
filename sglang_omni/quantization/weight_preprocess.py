@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Resolve the active quantization method's weight preprocessor for a checkpoint.
+"""Unified entry point for resolving a checkpoint's active quantization preprocessor.
 
-This is model-agnostic: given a model/checkpoint config, it resolves the
-registered :class:`QuantizationMethod` via the quantization registry and exposes
-its ``preprocess_weights`` hook so weight-loading paths exercise the unified
-quantization abstraction instead of hard-coded per-model helpers.
+This module is the single public contract between quantization metadata and
+weight-loading code. Backend policy paths and stage weight loaders both go
+through :func:`resolve_weight_preprocessor`, so they always agree on which
+quantization applies to a given checkpoint.
 """
 
 from __future__ import annotations
@@ -19,23 +19,35 @@ if TYPE_CHECKING:
 # A weight preprocessor maps ``(target_name, loaded_weight) -> loaded_weight``.
 WeightPreprocessor = Callable[[str, "torch.Tensor"], "torch.Tensor"]
 
+# Attributes walked on composite-model configs when ``hf_config`` does not
+# carry a top-level ``quantization_config``.
+_NESTED_CONFIG_ATTRS: tuple[str, ...] = (
+    "thinker_config",
+    "talker_config",
+    "text_config",
+)
 
-def _resolve_active_method(config: Any) -> "QuantizationMethod | None":
-    """Resolve the registered quantization method for a checkpoint config.
 
-    Walks ``config`` and a few well-known nested sub-configs (composite models
-    keep quantization metadata on the top-level config, while individual stages
-    are built from sub-configs that may not carry it) looking for a
-    ``quantization_config`` block, then asks the registry to resolve it.
-    """
-    from sglang_omni.quantization.registry import QuantizationRegistry
+def _normalize_quant_config(quant_config: Any) -> dict[str, Any] | None:
+    """Normalize a ``quantization_config`` value to a mutable dict."""
+    if quant_config is None:
+        return None
+    if isinstance(quant_config, dict):
+        return quant_config
+    if hasattr(quant_config, "to_dict"):
+        return quant_config.to_dict()
+    if hasattr(quant_config, "__dict__"):
+        return vars(quant_config)
+    return None
 
+def extract_quantization_config(config: Any) -> dict[str, Any] | None:
+    """Extract a ``quantization_config`` dict from a root or sub-model config."""
     if config is None:
         return None
 
     seen: set[int] = set()
-    candidates = [config]
-    for attr in ("thinker_config", "talker_config", "text_config"):
+    candidates: list[Any] = [config]
+    for attr in _NESTED_CONFIG_ATTRS:
         nested = getattr(config, attr, None)
         if nested is not None:
             candidates.append(nested)
@@ -48,28 +60,68 @@ def _resolve_active_method(config: Any) -> "QuantizationMethod | None":
         quant_config = getattr(candidate, "quantization_config", None)
         if quant_config is None and isinstance(candidate, dict):
             quant_config = candidate.get("quantization_config")
-        if quant_config is None:
-            continue
+        normalized = _normalize_quant_config(quant_config)
+        if normalized is not None:
+            return normalized
 
-        if isinstance(quant_config, dict):
-            quant_dict = quant_config
-        elif hasattr(quant_config, "to_dict"):
-            quant_dict = quant_config.to_dict()
-        elif hasattr(quant_config, "__dict__"):
-            quant_dict = vars(quant_config)
-        else:
-            continue
-
-        method = QuantizationRegistry.detect({"quantization_config": quant_dict})
-        if method is not None:
-            return method
+        # compressed-tensors stores its metadata under ``compression_config``.
+        compression_config = getattr(candidate, "compression_config", None)
+        if compression_config is None and isinstance(candidate, dict):
+            compression_config = candidate.get("compression_config")
+        normalized = _normalize_quant_config(compression_config)
+        if normalized is not None:
+            return normalized
 
     return None
 
 
-def resolve_weight_preprocessor(config: Any = None) -> WeightPreprocessor:
+def _get_method(
+    *,
+    config: Any = None,
+    quant_dict: dict[str, Any] | None = None,
+    method_name: str | None = None,
+) -> "QuantizationMethod | None":
+    """Resolve the registered quantization method from any supported input."""
+    from sglang_omni.quantization.registry import QuantizationRegistry
+
+    if method_name is not None:
+        try:
+            return QuantizationRegistry.get(method_name)()
+        except KeyError:
+            return None
+
+    if quant_dict is None:
+        quant_dict = extract_quantization_config(config)
+    if quant_dict is None:
+        return None
+    return QuantizationRegistry.detect({"quantization_config": quant_dict})
+
+def resolve_weight_preprocessor(
+    config: Any = None,
+    *,
+    quant_dict: dict[str, Any] | None = None,
+    method_name: str | None = None,
+) -> WeightPreprocessor:
     """Return the active quantization method's ``preprocess_weights`` callable."""
-    method = _resolve_active_method(config)
+    method = _get_method(
+        config=config,
+        quant_dict=quant_dict,
+        method_name=method_name,
+    )
     if method is None:
         return lambda name, weight: weight
     return method.preprocess_weights
+
+
+def detect_quantization_method(
+    config: Any = None,
+    *,
+    quant_dict: dict[str, Any] | None = None,
+    method_name: str | None = None,
+) -> "QuantizationMethod | None":
+    """Return the active :class:`QuantizationMethod` instance, or ``None``."""
+    return _get_method(
+        config=config,
+        quant_dict=quant_dict,
+        method_name=method_name,
+    )

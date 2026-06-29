@@ -313,3 +313,32 @@ class TestQuantizationRegistry:
             "No registered quantization method matches" in record.message
             for record in caplog.records
         )
+
+    def test_auto_register_all_fails_fast_on_builtin_import_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A broken built-in import is propagated, never silently skipped."""
+        registry_module = importlib.import_module(
+            "sglang_omni.quantization.registry"
+        )
+        original_methods = dict(registry_module.QuantizationRegistry._methods)
+        original_initialized = registry_module.QuantizationRegistry._initialized
+
+        def _raise_import_error(*args, **kwargs):
+            raise ImportError("simulated builtin quantization import failure")
+
+        try:
+            registry_module.QuantizationRegistry._methods.clear()
+            registry_module.QuantizationRegistry._initialized = False
+            monkeypatch.setattr(
+                registry_module.importlib, "import_module", _raise_import_error
+            )
+
+            with pytest.raises(ImportError, match="simulated builtin quantization"):
+                registry_module.QuantizationRegistry.auto_register_all()
+
+            assert registry_module.QuantizationRegistry._initialized is False
+        finally:
+            registry_module.QuantizationRegistry._methods.clear()
+            registry_module.QuantizationRegistry._methods.update(original_methods)
+            registry_module.QuantizationRegistry._initialized = original_initialized

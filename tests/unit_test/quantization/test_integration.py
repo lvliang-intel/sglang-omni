@@ -165,44 +165,6 @@ class TestModelWorkerQuantizationDetection:
         # depending on hardware support)
         assert hasattr(server_args, "moe_runner_backend")
 
-    def test_build_config_dict_from_object(self) -> None:
-        """Test building config dict from model config object."""
-        from sglang_omni.model_runner import model_worker
-
-        quant_config = FakeQuantizationConfig(
-            quant_method="auto-round",
-            bits=4,
-        )
-        hf_config = SimpleNamespace(
-            quantization_config=quant_config,
-        )
-        model_config = SimpleNamespace(
-            hf_config=hf_config,
-            hf_text_config=None,
-        )
-
-        config_dict = model_worker._build_config_dict(model_config)
-
-        assert config_dict is not None
-        assert "quantization_config" in config_dict
-
-    def test_build_config_dict_no_quantization(self) -> None:
-        """Test building config dict when no quantization present."""
-        from sglang_omni.model_runner import model_worker
-
-        hf_config = SimpleNamespace(
-            quantization_config=None,
-        )
-        model_config = SimpleNamespace(
-            hf_config=hf_config,
-            hf_text_config=None,
-        )
-
-        config_dict = model_worker._build_config_dict(model_config)
-
-        # No quantization config found, should return None
-        assert config_dict is None
-
 
 class TestQuantizationIntegrationE2E:
     """End-to-end tests for quantization workflow."""

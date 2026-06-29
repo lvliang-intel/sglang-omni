@@ -15,6 +15,13 @@ tests/
 └── unit_test/
     ├── benchmarks/
     │   └── test_dataset_regressions.py
+    ├── quantization/
+    │   ├── test_autoround.py
+    │   ├── test_config.py
+    │   ├── test_fp8.py
+    │   ├── test_integration.py
+    │   ├── test_registry.py
+    │   └── test_weight_preprocess.py
     ├── fixtures/
     │   ├── fish_fakes.py
     │   ├── pipeline_fakes.py
@@ -392,6 +399,20 @@ that happened to contain an older version of the test.
   - concurrent emit safety under multiple threads
   - lifecycle (start / stop / run_id mismatch / stage substitution)
   - timeline reconstruction, stage breakdown, hop breakdown, malformed-line tolerance.
+
+- `unit_test/quantization/`: Quantization method unit tests:
+  - config parsing for FP8, AutoRound, and edge cases (missing/empty quantization_config,
+    block_name_to_quantize as list/string)
+  - FP8 detection (with/without weight_block_size), weight_scale_inv reciprocal
+    conversion, and error handling (empty/zero/non-finite/non-float scale tensors)
+  - AutoRound stage-prefix normalization for block_name_to_quantize and
+    extra_config regex keys
+  - registry auto-registration, detection dispatch, fail-fast on broken built-in imports,
+    and exact-name-match vs. fallback detection semantics
+  - resolve_weight_preprocessor contract: identity when no quantization, FP8
+    preprocessor for FP8 checkpoints, nested config traversal
+  - model_worker integration: quantization detection from hf_config and nested
+    text_config, unified abstraction verification across all registered methods.
 
 - `unit_test/fixtures/`: Shared fakes. Single-test
   helpers should stay local until a second test needs them.

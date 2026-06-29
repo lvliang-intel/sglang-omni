@@ -57,27 +57,6 @@ class QuantizationConfig:
             extra=quant_config,
         )
 
-    def to_backend_config(self) -> dict[str, Any]:
-        """Convert to backend-specific configuration."""
-        return {
-            **self.extra,
-            "quant_method": self.method,
-            "bits": self.bits,
-            "group_size": self.group_size,
-            "sym": self.sym,
-            "packing_format": self.packing_format,
-        }
-
-    @property
-    def is_block_quantization(self) -> bool:
-        """Check if this is a block quantization method."""
-        return self.group_size > 0
-
-    @property
-    def is_per_channel(self) -> bool:
-        """Check if quantization is per-channel."""
-        return self.group_size == -1
-
 
 def detect_quantization_config(
     config: dict[str, Any],

@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from sglang_omni.quantization import QuantizationConfig, QuantizationRegistry
+from sglang_omni.quantization import (
+    QuantizationConfig,
+    detect_quantization_method,
+    extract_quantization_config,
+)
 
 if TYPE_CHECKING:
     from sglang.srt.configs.model_config import ModelConfig
@@ -516,41 +520,13 @@ def _model_config_has_moe(model_config: ModelConfig) -> bool:
 
 
 def _model_config_has_native_fp8_block_quant(model_config: ModelConfig) -> bool:
-    quant_config = _get_hf_quantization_config(model_config)
-    if quant_config is None:
+    quant_dict = extract_quantization_config(getattr(model_config, "hf_config", None))
+    if quant_dict is None:
         return False
-    quant_method = _get_config_value(quant_config, "quant_method")
-    weight_block_size = _get_config_value(quant_config, "weight_block_size")
     return (
-        _normalize_quantization(quant_method) == "fp8" and weight_block_size is not None
+        _normalize_quantization(quant_dict.get("quant_method")) == "fp8"
+        and quant_dict.get("weight_block_size") is not None
     )
-
-
-def _get_config_value(config: object, key: str) -> object | None:
-    if isinstance(config, dict):
-        return config.get(key)
-    return getattr(config, key, None)
-
-
-def _get_hf_quantization_config(model_config: ModelConfig) -> object | None:
-    """Get quantization config from model config.
-
-    Checks both hf_config and hf_text_config for quantization_config.
-    This handles nested configs in multi-stage models like Qwen3-Omni.
-
-    Args:
-        model_config: Model configuration
-
-    Returns:
-        Quantization config object or None
-    """
-    hf_config = getattr(model_config, "hf_config", None)
-    quant_config = getattr(hf_config, "quantization_config", None)
-    if quant_config is not None:
-        return quant_config
-
-    hf_text_config = getattr(model_config, "hf_text_config", None)
-    return getattr(hf_text_config, "quantization_config", None)
 
 
 def _is_h20_device() -> bool:
@@ -583,10 +559,11 @@ def _is_fp8_cutlass_moe_supported() -> bool:
 def _detect_quantization_method(
     model_config: ModelConfig,
 ) -> tuple[str | None, "QuantizationConfig | None"]:
-    """Detect quantization method from model config using the quantization registry.
+    """Detect quantization method from model config using the unified entry point.
 
-    This function uses the unified quantization abstraction to detect
-    which quantization method (if any) is used by the checkpoint.
+    Routes through :func:`detect_quantization_method` so backend policy and
+    stage weight loaders always observe the same active quantization for a
+    given checkpoint.
 
     Args:
         model_config: Model configuration
@@ -594,25 +571,21 @@ def _detect_quantization_method(
     Returns:
         Tuple of (method_name, QuantizationConfig) or (None, None)
     """
-    # Build config dict for detection
-    config_dict = _build_config_dict(model_config)
-    if config_dict is None:
+    hf_config = getattr(model_config, "hf_config", None)
+    quant_dict = extract_quantization_config(hf_config)
+    if quant_dict is None:
         return None, None
 
-    # Use the unified quantization detection
+    # ``QuantizationConfig.from_checkpoint_config`` expects the
+    # ``{"quantization_config": {...}}`` wrapper shape, so re-wrap the
+    # already-extracted payload.
+    config_dict = {"quantization_config": quant_dict}
+
     quant_config = QuantizationConfig.from_checkpoint_config(config_dict)
     if quant_config is None or not quant_config.method:
         return None, None
 
-    # Ensure built-in quantization methods are registered before detecting.
-    # Must be called here (not only in _apply_quantization_method_config) because
-    # _detect_quantization_method may be called independently and must produce
-    # a result even when the config dict is present.
-    QuantizationRegistry._ensure_builtins_registered()
-
-    # Resolve to the canonical registered method via the registry.
-
-    method_instance = QuantizationRegistry.detect(config_dict)
+    method_instance = detect_quantization_method(quant_dict=quant_dict)
     if method_instance is None:
         logger.warning(f"Unknown quantization method: {quant_config.method!r}")
         return None, None
@@ -622,59 +595,6 @@ def _detect_quantization_method(
     quant_config.method = method_instance.name
 
     return method_instance.name, quant_config
-
-
-def _build_config_dict(model_config: ModelConfig) -> dict | None:
-    """Build a config dict from model_config for quantization detection.
-
-    Args:
-        model_config: Model configuration
-
-    Returns:
-        Config dict with quantization_config, or None
-    """
-
-    # Helper to normalize quantization_config to a dict
-    def _normalize_quant_config(quant_config: object) -> dict | None:
-        if quant_config is None:
-            return None
-        # Handle dict directly (e.g., SGLang's hf_config.quantization_config)
-        if isinstance(quant_config, dict):
-            return quant_config
-        # Handle dataclass-like objects with to_dict()
-        if hasattr(quant_config, "to_dict"):
-            return quant_config.to_dict()
-        # Handle objects with __dict__ (e.g., dataclasses)
-        if hasattr(quant_config, "__dict__"):
-            return vars(quant_config)
-        return None
-
-    # Try hf_config first
-    hf_config = getattr(model_config, "hf_config", None)
-    if hf_config is not None:
-        # Try to get quantization_config directly
-        quant_config = getattr(hf_config, "quantization_config", None)
-        normalized = _normalize_quant_config(quant_config)
-        if normalized is not None:
-            return {"quantization_config": normalized}
-
-        # Try text_config for nested configs
-        text_config = getattr(hf_config, "text_config", None)
-        if text_config is not None:
-            quant_config = getattr(text_config, "quantization_config", None)
-            normalized = _normalize_quant_config(quant_config)
-            if normalized is not None:
-                return {"quantization_config": normalized}
-
-    # Try hf_text_config directly
-    hf_text_config = getattr(model_config, "hf_text_config", None)
-    if hf_text_config is not None:
-        quant_config = getattr(hf_text_config, "quantization_config", None)
-        normalized = _normalize_quant_config(quant_config)
-        if normalized is not None:
-            return {"quantization_config": normalized}
-
-    return None
 
 
 def _apply_quantization_method_config(
@@ -694,15 +614,12 @@ def _apply_quantization_method_config(
     if method_name is None:
         return
 
-    from sglang_omni.quantization import QuantizationRegistry
-
-    try:
-        method_cls = QuantizationRegistry.get(method_name)
-        method_instance = method_cls()
-        method_instance.configure(server_args, model_config)
-        logger.info(f"Applied quantization method configuration: {method_name}")
-    except KeyError:
+    method_instance = detect_quantization_method(method_name=method_name)
+    if method_instance is None:
         logger.warning(f"Unknown quantization method: {method_name}")
+        return
+    method_instance.configure(server_args, model_config)
+    logger.info(f"Applied quantization method configuration: {method_name}")
 
 
 def _initialize_model_worker_backend_globals(

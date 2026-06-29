@@ -738,7 +738,10 @@ class Qwen3OmniTalker(nn.Module):
     ):
         super().__init__()
         if not isinstance(config, Qwen3OmniMoeTalkerConfig):
+            self.root_config = config
             config = Qwen3OmniMoeTalkerConfig(**config.talker_config.to_dict())
+        else:
+            self.root_config = config
         self.config = config
 
         # Projection MLPs (thinker hidden -> talker hidden)
@@ -1448,7 +1451,7 @@ class Qwen3OmniTalker(nn.Module):
             num_experts=self.config.text_config.num_experts,
         )
 
-        preprocess_weight = resolve_weight_preprocessor(self.config)
+        preprocess_weight = resolve_weight_preprocessor(self.root_config)
 
         for name, loaded_weight in weights:
             # Support both monolithic (talker.xxx) and split (xxx) checkpoints

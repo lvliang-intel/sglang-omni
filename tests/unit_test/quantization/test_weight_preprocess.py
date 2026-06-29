@@ -167,25 +167,21 @@ class TestResolveWeightPreprocessor:
         assert torch.allclose(result, torch.tensor([0.25]))
 
 
-class TestResolveActiveMethod:
-    """Tests for _resolve_active_method()."""
+class TestDetectQuantizationMethod:
+    """Tests for the unified ``detect_quantization_method`` entry point."""
 
     def test_returns_none_when_no_quantization(self) -> None:
         """Returns None when config has no quantization."""
-        from sglang_omni.quantization.weight_preprocess import (
-            _resolve_active_method,
-        )
+        from sglang_omni.quantization import detect_quantization_method
 
         config = SimpleNamespace(model_type="qwen3")
-        result = _resolve_active_method(config)
+        result = detect_quantization_method(config=config)
 
         assert result is None
 
     def test_returns_none_for_fp8_without_block_size(self) -> None:
         """FP8 without weight_block_size returns None."""
-        from sglang_omni.quantization.weight_preprocess import (
-            _resolve_active_method,
-        )
+        from sglang_omni.quantization import detect_quantization_method
 
         config = {
             "quantization_config": {
@@ -194,16 +190,14 @@ class TestResolveActiveMethod:
                 # Missing weight_block_size
             }
         }
-        result = _resolve_active_method(config)
+        result = detect_quantization_method(config=config)
 
         # Should not detect FP8 without required block_size
         assert result is None
 
     def test_returns_method_for_valid_fp8(self) -> None:
         """Valid FP8 config returns FP8Quantization."""
-        from sglang_omni.quantization.weight_preprocess import (
-            _resolve_active_method,
-        )
+        from sglang_omni.quantization import detect_quantization_method
         from sglang_omni.quantization.methods.fp8 import FP8Quantization
 
         config = {
@@ -213,7 +207,7 @@ class TestResolveActiveMethod:
                 "weight_block_size": [128, 128],
             }
         }
-        result = _resolve_active_method(config)
+        result = detect_quantization_method(config=config)
 
         assert result is not None
         assert isinstance(result, FP8Quantization)

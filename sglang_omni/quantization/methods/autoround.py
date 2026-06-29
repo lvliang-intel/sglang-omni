@@ -124,34 +124,57 @@ class AutoRoundQuantization(QuantizationMethod):
         else:
             block_list = []
 
-        if not block_list:
+        blocks_changed = False
+        normalized_blocks: list[str] = []
+        if block_list:
+            normalized_blocks = [
+                entry[len(stage_prefix) :] if entry.startswith(stage_prefix) else entry
+                for entry in block_list
+            ]
+            if normalized_blocks != block_list:
+                quant_config["block_name_to_quantize"] = ",".join(normalized_blocks)
+                blocks_changed = True
+
+        extra_changed = self._normalize_extra_config_keys(quant_config, stage_prefix)
+
+        if not blocks_changed and not extra_changed:
             return
-
-        normalized_blocks = [
-            entry[len(stage_prefix) :] if entry.startswith(stage_prefix) else entry
-            for entry in block_list
-        ]
-        if normalized_blocks == block_list:
-            return
-
-        quant_config["block_name_to_quantize"] = ",".join(normalized_blocks)
-
-        # extra_config keys are regex patterns that reference the same prefixed
-        # module paths; strip the prefix in both its plain and regex-escaped forms.
-        extra_config = quant_config.get("extra_config")
-        if isinstance(extra_config, dict) and extra_config:
-            escaped_prefix = stage_prefix.replace(".", r"\.")
-            quant_config["extra_config"] = {
-                key.replace(escaped_prefix, "").replace(stage_prefix, ""): value
-                for key, value in extra_config.items()
-            }
 
         if needs_writeback:
             setattr(hf_config, "quantization_config", quant_config)
 
-        logger.info(
-            "Normalized AutoRound block_name_to_quantize for stage %s: %s -> %s",
-            arch,
-            block_list,
-            normalized_blocks,
-        )
+        if blocks_changed:
+            logger.info(
+                "Normalized AutoRound block_name_to_quantize for stage %s: %s -> %s",
+                arch,
+                block_list,
+                normalized_blocks,
+            )
+
+    @staticmethod
+    def _strip_stage_prefix(pattern: str, plain_prefix: str, escaped_prefix: str) -> str:
+        """Strip the stage prefix from the start of a regex pattern."""
+        if pattern.startswith(escaped_prefix):
+            return pattern[len(escaped_prefix) :]
+        if pattern.startswith(plain_prefix):
+            return pattern[len(plain_prefix) :]
+        return pattern
+
+    def _normalize_extra_config_keys(
+        self, quant_config: dict[str, Any], stage_prefix: str
+    ) -> bool:
+        """Strip ``stage_prefix`` from the leading edge of every regex key."""
+        extra_config = quant_config.get("extra_config")
+        if not (isinstance(extra_config, dict) and extra_config):
+            return False
+
+        escaped_prefix = stage_prefix.replace(".", r"\.")
+        normalized_extra = {
+            self._strip_stage_prefix(key, stage_prefix, escaped_prefix): value
+            for key, value in extra_config.items()
+        }
+        if normalized_extra == extra_config:
+            return False
+
+        quant_config["extra_config"] = normalized_extra
+        return True

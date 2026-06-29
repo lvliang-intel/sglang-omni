@@ -30,6 +30,8 @@ from sglang_omni.quantization.config import (
 from sglang_omni.quantization.registry import QuantizationRegistry
 from sglang_omni.quantization.weight_preprocess import (
     WeightPreprocessor,
+    detect_quantization_method,
+    extract_quantization_config,
     resolve_weight_preprocessor,
 )
 
@@ -43,4 +45,6 @@ __all__ = [
     "QuantizationRegistry",
     "WeightPreprocessor",
     "resolve_weight_preprocessor",
+    "detect_quantization_method",
+    "extract_quantization_config",
 ]

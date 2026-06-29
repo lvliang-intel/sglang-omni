@@ -160,6 +160,80 @@ class TestAutoRoundConfigureStagePrefix:
             "model.layers.1": {"bits": 4},
         }
 
+    def test_extra_config_normalized_when_block_names_already_stripped(
+        self,
+    ) -> None:
+        """``extra_config`` is rewritten even when block names are already stripped."""
+        quant_config = {
+            "quant_method": "auto-round",
+            "block_name_to_quantize": "model.layers",
+            "extra_config": {
+                r"thinker\.model\.layers\.0": {"bits": 8},
+                "thinker.model.layers.1": {"bits": 4},
+            },
+        }
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        # block_name_to_quantize must remain unchanged (idempotent)
+        assert quant_config["block_name_to_quantize"] == "model.layers"
+        # but extra_config must still be normalized
+        assert quant_config["extra_config"] == {
+            r"model\.layers\.0": {"bits": 8},
+            "model.layers.1": {"bits": 4},
+        }
+
+    def test_extra_config_prefix_anchored_at_pattern_start(self) -> None:
+        """Only a leading stage prefix is stripped from ``extra_config`` keys."""
+        quant_config = {
+            "quant_method": "auto-round",
+            "block_name_to_quantize": "thinker.model.layers",
+            "extra_config": {
+                # leading prefix → should be stripped
+                r"thinker\.model\.layers\.0": {"bits": 8},
+                # prefix appears inside an alternation → must be preserved
+                r"(?:thinker|decoder)\.model\.layers\.1": {"bits": 4},
+                # prefix appears as a substring of another name → must be preserved
+                r"thinker_audio\.model\.layers\.2": {"bits": 4},
+            },
+        }
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        assert quant_config["extra_config"] == {
+            r"model\.layers\.0": {"bits": 8},
+            r"(?:thinker|decoder)\.model\.layers\.1": {"bits": 4},
+            r"thinker_audio\.model\.layers\.2": {"bits": 4},
+        }
+
+    def test_object_config_extra_config_normalized_when_blocks_already_stripped(
+        self,
+    ) -> None:
+        """Object-shaped configs: extra_config is normalized even when blocks are
+        already stripped, and the converted dict is written back to
+        ``hf_config.quantization_config``.
+        """
+        quant_config = SimpleNamespace(
+            quant_method="auto-round",
+            block_name_to_quantize="model.layers",
+            extra_config={r"thinker\.model\.layers\.0": {"bits": 8}},
+        )
+        model_config = _make_model_config(
+            "Qwen3OmniThinkerForCausalLM", quant_config
+        )
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        assert isinstance(model_config.hf_config.quantization_config, dict)
+        assert model_config.hf_config.quantization_config[
+            "block_name_to_quantize"
+        ] == "model.layers"
+        assert model_config.hf_config.quantization_config["extra_config"] == {
+            r"model\.layers\.0": {"bits": 8}
+        }
+
     def test_no_change_when_block_names_lack_prefix(self) -> None:
         """Already prefix-less block names are left untouched (idempotent)."""
         quant_config = {

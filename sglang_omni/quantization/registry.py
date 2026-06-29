@@ -173,15 +173,7 @@ class QuantizationRegistry:
 
         package = "sglang_omni.quantization.methods"
         for module_name in _BUILTIN_METHOD_MODULES:
-            try:
-                importlib.import_module(f".{module_name}", package=package)
-            except ImportError as e:
-                logger.warning(
-                    "Skipping quantization method %r: failed to import (%s). "
-                    "Install the required optional dependencies to enable it.",
-                    module_name,
-                    e,
-                )
+            importlib.import_module(f".{module_name}", package=package)
 
         cls._initialized = True
         logger.info(f"Registered quantization methods: {list(cls._methods.keys())}")

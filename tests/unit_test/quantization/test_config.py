@@ -16,7 +16,6 @@ class TestQuantizationConfig:
                 "quant_method": "fp8",
                 "bits": 8,
                 "group_size": 128,
-                "weight_block_size": [128, 128],
             }
         }
 
@@ -26,7 +25,6 @@ class TestQuantizationConfig:
         assert result.method == "fp8"
         assert result.bits == 8
         assert result.group_size == 128
-        assert result.is_block_quantization is True
 
     def test_from_checkpoint_config_autoround(self) -> None:
         """Test parsing AutoRound quantization config."""
@@ -99,39 +97,3 @@ class TestQuantizationConfig:
 
         assert result is not None
         assert result.block_name_to_quantize == ("layer.0", "layer.1", "layer.2")
-
-    def test_to_backend_config(self) -> None:
-        """Test converting to backend config."""
-        config = QuantizationConfig(
-            method="fp8",
-            bits=8,
-            group_size=128,
-            sym=True,
-        )
-
-        backend = config.to_backend_config()
-
-        assert backend["quant_method"] == "fp8"
-        assert backend["bits"] == 8
-        assert backend["group_size"] == 128
-        assert backend["sym"] is True
-
-    def test_is_block_quantization(self) -> None:
-        """Test block quantization detection."""
-        # Block quantization (group_size > 0)
-        config_block = QuantizationConfig(method="fp8", group_size=128)
-        assert config_block.is_block_quantization is True
-
-        # Per-channel quantization (group_size == -1)
-        config_channel = QuantizationConfig(method="awq", group_size=-1)
-        assert config_channel.is_block_quantization is False
-
-    def test_is_per_channel(self) -> None:
-        """Test per-channel quantization detection."""
-        # Per-channel
-        config_channel = QuantizationConfig(method="awq", group_size=-1)
-        assert config_channel.is_per_channel is True
-
-        # Block quantization
-        config_block = QuantizationConfig(method="fp8", group_size=128)
-        assert config_block.is_per_channel is False
