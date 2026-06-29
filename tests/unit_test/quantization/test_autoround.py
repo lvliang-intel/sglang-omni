@@ -220,16 +220,15 @@ class TestAutoRoundConfigureStagePrefix:
             block_name_to_quantize="model.layers",
             extra_config={r"thinker\.model\.layers\.0": {"bits": 8}},
         )
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
         assert isinstance(model_config.hf_config.quantization_config, dict)
-        assert model_config.hf_config.quantization_config[
-            "block_name_to_quantize"
-        ] == "model.layers"
+        assert (
+            model_config.hf_config.quantization_config["block_name_to_quantize"]
+            == "model.layers"
+        )
         assert model_config.hf_config.quantization_config["extra_config"] == {
             r"model\.layers\.0": {"bits": 8}
         }
@@ -273,7 +272,9 @@ class TestAutoRoundConfigureStagePrefix:
         model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", "not-a-dict")
 
         with pytest.raises(TypeError, match="unsupported type"):
-            AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+            AutoRoundQuantization().configure(
+                server_args=None, model_config=model_config
+            )
 
     def test_missing_block_name_to_quantize_is_noop(self) -> None:
         """No ``block_name_to_quantize`` key leaves the config unchanged."""
@@ -298,9 +299,7 @@ class TestAutoRoundObjectShapedConfig:
             block_name_to_quantize="thinker.model.layers",
             bits=4,
         )
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -327,9 +326,7 @@ class TestAutoRoundObjectShapedConfig:
                 }
 
         quant_config = HasToDict()
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 
@@ -342,16 +339,15 @@ class TestAutoRoundObjectShapedConfig:
 
     def test_unsupported_quant_config_type_raises(self) -> None:
         """Unsupported quantization config type raises TypeError."""
-        from types import SimpleNamespace
 
         # A list is not a supported type
         quant_config = ["not", "a", "dict"]
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         with pytest.raises(TypeError, match="unsupported type"):
-            AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+            AutoRoundQuantization().configure(
+                server_args=None, model_config=model_config
+            )
 
     def test_extra_config_with_object_quant_config(self) -> None:
         """extra_config keys are normalized even for object-shaped configs."""
@@ -365,9 +361,7 @@ class TestAutoRoundObjectShapedConfig:
                 "thinker.model.layers.1": {"bits": 4},
             },
         )
-        model_config = _make_model_config(
-            "Qwen3OmniThinkerForCausalLM", quant_config
-        )
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
 
         AutoRoundQuantization().configure(server_args=None, model_config=model_config)
 

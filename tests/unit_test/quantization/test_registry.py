@@ -289,8 +289,7 @@ class TestQuantizationRegistry:
         QuantizationRegistry.detect(config)
 
         assert any(
-            "did not confirm support" in record.message
-            for record in caplog.records
+            "did not confirm support" in record.message for record in caplog.records
         )
 
     def test_detect_warns_when_no_method_matches(
@@ -318,9 +317,7 @@ class TestQuantizationRegistry:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A broken built-in import is propagated, never silently skipped."""
-        registry_module = importlib.import_module(
-            "sglang_omni.quantization.registry"
-        )
+        registry_module = importlib.import_module("sglang_omni.quantization.registry")
         original_methods = dict(registry_module.QuantizationRegistry._methods)
         original_initialized = registry_module.QuantizationRegistry._initialized
 

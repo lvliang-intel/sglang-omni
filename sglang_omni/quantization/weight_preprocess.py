@@ -40,6 +40,7 @@ def _normalize_quant_config(quant_config: Any) -> dict[str, Any] | None:
         return vars(quant_config)
     return None
 
+
 def extract_quantization_config(config: Any) -> dict[str, Any] | None:
     """Extract a ``quantization_config`` dict from a root or sub-model config."""
     if config is None:
@@ -95,6 +96,7 @@ def _get_method(
     if quant_dict is None:
         return None
     return QuantizationRegistry.detect({"quantization_config": quant_dict})
+
 
 def resolve_weight_preprocessor(
     config: Any = None,

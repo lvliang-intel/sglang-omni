@@ -213,9 +213,7 @@ def _sync_stage_parallelism_aliases(
         if isinstance(stage_name, str):
             segments.append(stage_name)
         tp_size_keys = {f"stages.{segment}.tp_size" for segment in segments}
-        parallelism_keys = {
-            f"stages.{segment}.parallelism.tp" for segment in segments
-        }
+        parallelism_keys = {f"stages.{segment}.parallelism.tp" for segment in segments}
         has_tp_size_override = bool(tp_size_keys & override_keys)
         has_parallelism_override = bool(parallelism_keys & override_keys)
         if has_tp_size_override == has_parallelism_override:

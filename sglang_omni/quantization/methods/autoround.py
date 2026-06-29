@@ -152,7 +152,9 @@ class AutoRoundQuantization(QuantizationMethod):
             )
 
     @staticmethod
-    def _strip_stage_prefix(pattern: str, plain_prefix: str, escaped_prefix: str) -> str:
+    def _strip_stage_prefix(
+        pattern: str, plain_prefix: str, escaped_prefix: str
+    ) -> str:
         """Strip the stage prefix from the start of a regex pattern."""
         if pattern.startswith(escaped_prefix):
             return pattern[len(escaped_prefix) :]
