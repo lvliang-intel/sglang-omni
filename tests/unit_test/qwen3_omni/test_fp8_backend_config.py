@@ -679,12 +679,13 @@ def test_configure_backend_policy_fp8_gemm_ordering(
     # unconditional fp8_gemm_runner_backend="triton" override is ever
     # reintroduced into configure(), the Thinker / non-Qwen "auto" cases below
     # will fail.  This mirrors the exact ordering in _configure_backend_policy().
-    method_name, _ = model_worker._detect_quantization_method(model_config)
-    model_worker._apply_quantization_method_config(
-        server_args,
-        model_config,
-        method_name,
-    )
+    method_instance = model_worker._detect_quantization_method(model_config)
+    if method_instance is not None:
+        model_worker._apply_quantization_method_config(
+            server_args,
+            model_config,
+            method_instance,
+        )
 
     # Step 2: run the REAL _apply_model_worker_backend_policy().
     # This is the arch-aware step that sets Talker FP8 Triton.

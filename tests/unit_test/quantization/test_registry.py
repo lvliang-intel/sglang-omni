@@ -12,6 +12,22 @@ from sglang_omni.quantization.base import QuantizationMethod
 from sglang_omni.quantization.registry import QuantizationRegistry
 
 
+@pytest.fixture(autouse=True)
+def _snapshot_quantization_registry():
+    """Snapshot and restore the QuantizationRegistry state around each test."""
+    registry_module = importlib.import_module("sglang_omni.quantization.registry")
+    registry_cls = registry_module.QuantizationRegistry
+
+    original_methods = dict(registry_cls._methods)
+    original_initialized = registry_cls._initialized
+    try:
+        yield
+    finally:
+        registry_cls._methods.clear()
+        registry_cls._methods.update(original_methods)
+        registry_cls._initialized = original_initialized
+
+
 # Create a test quantization method for testing the registry
 class TestQuantizationMethod(QuantizationMethod):
     """Test implementation of QuantizationMethod."""

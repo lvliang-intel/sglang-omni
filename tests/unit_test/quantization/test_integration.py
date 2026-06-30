@@ -40,14 +40,10 @@ class TestModelWorkerQuantizationDetection:
         )
 
         # Detect quantization
-        method_name, quant_config_result = model_worker._detect_quantization_method(
-            model_config
-        )
+        method_instance = model_worker._detect_quantization_method(model_config)
 
-        assert method_name == "fp8"
-        assert quant_config_result is not None
-        assert quant_config_result.method == "fp8"
-        assert quant_config_result.bits == 8
+        assert method_instance is not None
+        assert method_instance.name == "fp8"
 
     def test_detect_autoround_from_hf_config(self) -> None:
         """Test detecting AutoRound quantization from hf_config."""
@@ -67,14 +63,10 @@ class TestModelWorkerQuantizationDetection:
             hf_text_config=None,
         )
 
-        method_name, quant_config_result = model_worker._detect_quantization_method(
-            model_config
-        )
+        method_instance = model_worker._detect_quantization_method(model_config)
 
-        assert method_name == "auto-round"
-        assert quant_config_result is not None
-        assert quant_config_result.method == "auto-round"
-        assert quant_config_result.bits == 4
+        assert method_instance is not None
+        assert method_instance.name == "auto-round"
 
     def test_detect_no_quantization(self) -> None:
         """Test when no quantization is present."""
@@ -89,12 +81,9 @@ class TestModelWorkerQuantizationDetection:
             hf_text_config=None,
         )
 
-        method_name, quant_config_result = model_worker._detect_quantization_method(
-            model_config
-        )
+        method_instance = model_worker._detect_quantization_method(model_config)
 
-        assert method_name is None
-        assert quant_config_result is None
+        assert method_instance is None
 
     def test_detect_from_nested_text_config(self) -> None:
         """Test detecting quantization from nested text_config."""
@@ -125,16 +114,15 @@ class TestModelWorkerQuantizationDetection:
             hf_text_config=text_config,
         )
 
-        method_name, quant_config_result = model_worker._detect_quantization_method(
-            model_config
-        )
+        method_instance = model_worker._detect_quantization_method(model_config)
 
-        assert method_name == "fp8"
-        assert quant_config_result is not None
+        assert method_instance is not None
+        assert method_instance.name == "fp8"
 
     def test_apply_quantization_method_config_fp8(self) -> None:
         """Test applying FP8 quantization configuration."""
         from sglang_omni.model_runner import model_worker
+        from sglang_omni.quantization import detect_quantization_method
 
         # Create mock server args
         server_args = SimpleNamespace(
@@ -154,11 +142,16 @@ class TestModelWorkerQuantizationDetection:
             hf_text_config=None,
         )
 
+        # Resolve the FP8 method instance directly so we can drive
+        # _apply_quantization_method_config with a real object.
+        method_instance = detect_quantization_method(method_name="fp8")
+        assert method_instance is not None
+
         # Apply FP8 configuration - this should not crash
         model_worker._apply_quantization_method_config(
             server_args,
             model_config,
-            "fp8",
+            method_instance,
         )
 
         # Just verify it runs without error (backends may or may not change

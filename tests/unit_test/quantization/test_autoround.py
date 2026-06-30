@@ -208,6 +208,23 @@ class TestAutoRoundConfigureStagePrefix:
             r"thinker_audio\.model\.layers\.2": {"bits": 4},
         }
 
+    def test_strips_prefix_from_leading_wildcard_pattern(self) -> None:
+        """Leading ``.*<escaped_prefix>`` patterns drop only the prefix part."""
+        quant_config = {
+            "quant_method": "auto-round",
+            "block_name_to_quantize": "thinker.model.layers",
+            "extra_config": {
+                r".*thinker\.model\.layers\.\d+\.mlp\.gate.*": {"bits": 8},
+            },
+        }
+        model_config = _make_model_config("Qwen3OmniThinkerForCausalLM", quant_config)
+
+        AutoRoundQuantization().configure(server_args=None, model_config=model_config)
+
+        assert quant_config["extra_config"] == {
+            r".*model\.layers\.\d+\.mlp\.gate.*": {"bits": 8},
+        }
+
     def test_object_config_extra_config_normalized_when_blocks_already_stripped(
         self,
     ) -> None:

@@ -160,6 +160,14 @@ class AutoRoundQuantization(QuantizationMethod):
             return pattern[len(escaped_prefix) :]
         if pattern.startswith(plain_prefix):
             return pattern[len(plain_prefix) :]
+        leading_wildcard_escaped = r".*" + escaped_prefix
+        if pattern.startswith(leading_wildcard_escaped):
+            # Drop only the prefix part; keep the leading ".*" wildcard so the
+            # normalized regex still matches stage-local module names.
+            return (
+                leading_wildcard_escaped[: -len(escaped_prefix)]
+                + pattern[len(leading_wildcard_escaped) :]
+            )
         return pattern
 
     def _normalize_extra_config_keys(

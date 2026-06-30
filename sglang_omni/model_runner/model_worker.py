@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from sglang_omni.quantization import (
-    QuantizationConfig,
     detect_quantization_method,
     extract_quantization_config,
 )
@@ -16,6 +15,8 @@ from sglang_omni.quantization import (
 if TYPE_CHECKING:
     from sglang.srt.configs.model_config import ModelConfig
     from sglang.srt.server_args import ServerArgs
+
+    from sglang_omni.quantization.base import QuantizationMethod
 
 logger = logging.getLogger(__name__)
 
@@ -122,15 +123,14 @@ class ModelWorker:
         model_config.num_hidden_layers = text_cfg.num_hidden_layers
 
     def _configure_backend_policy(self) -> None:
-        # First, use the unified quantization detection
-        method_name, _ = _detect_quantization_method(self.model_config)
-
-        # Apply the quantization method's configuration if detected
-        if method_name is not None:
+        # Resolve the active quantization method once, then run its
+        # configure() step before the model_worker backend policy.
+        method_instance = _detect_quantization_method(self.model_config)
+        if method_instance is not None:
             _apply_quantization_method_config(
                 self.server_args,
                 self.model_config,
-                method_name,
+                method_instance,
             )
 
         effective_quantization = _apply_model_worker_backend_policy(
@@ -558,68 +558,42 @@ def _is_fp8_cutlass_moe_supported() -> bool:
 
 def _detect_quantization_method(
     model_config: ModelConfig,
-) -> tuple[str | None, "QuantizationConfig | None"]:
-    """Detect quantization method from model config using the unified entry point.
+) -> "QuantizationMethod | None":
+    """Detect the active quantization method from a model config.
 
-    Routes through :func:`detect_quantization_method` so backend policy and
-    stage weight loaders always observe the same active quantization for a
-    given checkpoint.
-
-    Args:
-        model_config: Model configuration
-
-    Returns:
-        Tuple of (method_name, QuantizationConfig) or (None, None)
+    Returns the resolved :class:`QuantizationMethod` instance (canonical name
+    already applied) or ``None`` if the checkpoint has no recognized
+    quantization. Routes through :func:`detect_quantization_method` so the
+    backend policy and stage weight loaders always agree on which
+    quantization applies to a given checkpoint.
     """
     hf_config = getattr(model_config, "hf_config", None)
     quant_dict = extract_quantization_config(hf_config)
     if quant_dict is None:
-        return None, None
-
-    # ``QuantizationConfig.from_checkpoint_config`` expects the
-    # ``{"quantization_config": {...}}`` wrapper shape, so re-wrap the
-    # already-extracted payload.
-    config_dict = {"quantization_config": quant_dict}
-
-    quant_config = QuantizationConfig.from_checkpoint_config(config_dict)
-    if quant_config is None or not quant_config.method:
-        return None, None
+        return None
 
     method_instance = detect_quantization_method(quant_dict=quant_dict)
     if method_instance is None:
-        logger.warning(f"Unknown quantization method: {quant_config.method!r}")
-        return None, None
-
-    # Normalize to the canonical registered name so downstream lookups
-    # succeed regardless of which alias the checkpoint used.
-    quant_config.method = method_instance.name
-
-    return method_instance.name, quant_config
+        raw_method = quant_dict.get("quant_method")
+        if raw_method is not None:
+            logger.warning(f"Unknown quantization method: {raw_method!r}")
+        return None
+    return method_instance
 
 
 def _apply_quantization_method_config(
     server_args: ServerArgs,
     model_config: ModelConfig,
-    method_name: str | None,
+    method_instance: "QuantizationMethod",
 ) -> None:
-    """Apply quantization method-specific configuration.
+    """Apply a resolved quantization method's ``configure()`` step.
 
-    This delegates to the registered quantization method's configure() method.
-
-    Args:
-        server_args: Server arguments
-        model_config: Model configuration
-        method_name: Name of the quantization method
+    The caller passes the same :class:`QuantizationMethod` instance returned
+    by :func:`_detect_quantization_method` so we do not re-resolve the
+    method through the registry here.
     """
-    if method_name is None:
-        return
-
-    method_instance = detect_quantization_method(method_name=method_name)
-    if method_instance is None:
-        logger.warning(f"Unknown quantization method: {method_name}")
-        return
     method_instance.configure(server_args, model_config)
-    logger.info(f"Applied quantization method configuration: {method_name}")
+    logger.info(f"Applied quantization method configuration: {method_instance.name}")
 
 
 def _initialize_model_worker_backend_globals(
