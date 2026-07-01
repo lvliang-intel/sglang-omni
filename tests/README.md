@@ -17,10 +17,8 @@ tests/
     │   └── test_dataset_regressions.py
     ├── quantization/
     │   ├── test_autoround.py
-    │   ├── test_config.py
     │   ├── test_fp8.py
     │   ├── test_integration.py
-    │   ├── test_registry.py
     │   └── test_weight_preprocess.py
     ├── fixtures/
     │   ├── fish_fakes.py
