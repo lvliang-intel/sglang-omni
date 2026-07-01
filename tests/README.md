@@ -400,19 +400,20 @@ that happened to contain an older version of the test.
   - lifecycle (start / stop / run_id mismatch / stage substitution)
   - timeline reconstruction, stage breakdown, hop breakdown, malformed-line tolerance.
 
-- `unit_test/quantization/`: Quantization method unit tests:
-  - config parsing for FP8, AutoRound, and edge cases (missing/empty quantization_config,
-    block_name_to_quantize as list/string)
+- `unit_test/quantization/`: Tests for the Omni compatibility layer on top of
+  SGLang's native quantization (`sglang_omni/quantization/`):
+  - `resolve_quant_config` discovery from root/nested sub-configs and
+    `compression_config`, plus edge cases (missing/empty quantization_config)
   - FP8 detection (with/without weight_block_size), weight_scale_inv reciprocal
     conversion, and error handling (empty/zero/non-finite/non-float scale tensors)
   - AutoRound stage-prefix normalization for block_name_to_quantize and
-    extra_config regex keys
-  - registry auto-registration, detection dispatch, fail-fast on broken built-in imports,
-    and exact-name-match vs. fallback detection semantics
-  - resolve_weight_preprocessor contract: identity when no quantization, FP8
-    preprocessor for FP8 checkpoints, nested config traversal
-  - model_worker integration: quantization detection from hf_config and nested
-    text_config, unified abstraction verification across all registered methods.
+    extra_config regex keys via `normalize_quant_config`
+  - `get_weight_preprocessor` contract: identity by default (native block-FP8,
+    AutoRound), FP8 reciprocal preprocessor only when `fp8_scale_inverted=True`,
+    nested config traversal
+  - model_worker integration: `_apply_omni_quantization_adapters` triggers
+    stage-local normalization from hf_config and nested text_config only when
+    needed.
 
 - `unit_test/fixtures/`: Shared fakes. Single-test
   helpers should stay local until a second test needs them.

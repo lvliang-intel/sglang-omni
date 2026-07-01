@@ -8,15 +8,14 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from sglang_omni.quantization import (
-    detect_quantization_method,
-    extract_quantization_config,
+    resolve_quant_config,
+    needs_quant_config_normalization,
+    normalize_quant_config,
 )
 
 if TYPE_CHECKING:
     from sglang.srt.configs.model_config import ModelConfig
     from sglang.srt.server_args import ServerArgs
-
-    from sglang_omni.quantization.base import QuantizationMethod
 
 logger = logging.getLogger(__name__)
 
@@ -123,15 +122,10 @@ class ModelWorker:
         model_config.num_hidden_layers = text_cfg.num_hidden_layers
 
     def _configure_backend_policy(self) -> None:
-        # Resolve the active quantization method once, then run its
-        # configure() step before the model_worker backend policy.
-        method_instance = _detect_quantization_method(self.model_config)
-        if method_instance is not None:
-            _apply_quantization_method_config(
-                self.server_args,
-                self.model_config,
-                method_instance,
-            )
+        # Apply Omni-specific quantization adapters (stage-local checkpoint name
+        # normalization) before SGLang builds its quant config, then run the
+        # model_worker backend policy.
+        _apply_omni_quantization_adapters(self.model_config)
 
         effective_quantization = _apply_model_worker_backend_policy(
             self.server_args,
@@ -520,7 +514,7 @@ def _model_config_has_moe(model_config: ModelConfig) -> bool:
 
 
 def _model_config_has_native_fp8_block_quant(model_config: ModelConfig) -> bool:
-    quant_dict = extract_quantization_config(getattr(model_config, "hf_config", None))
+    quant_dict = resolve_quant_config(getattr(model_config, "hf_config", None))
     if quant_dict is None:
         return False
     return (
@@ -556,44 +550,22 @@ def _is_fp8_cutlass_moe_supported() -> bool:
     )
 
 
-def _detect_quantization_method(
-    model_config: ModelConfig,
-) -> "QuantizationMethod | None":
-    """Detect the active quantization method from a model config.
+def _apply_omni_quantization_adapters(model_config: ModelConfig) -> None:
+    """Apply Omni-specific quantization adapters before SGLang builds its config.
 
-    Returns the resolved :class:`QuantizationMethod` instance (canonical name
-    already applied) or ``None`` if the checkpoint has no recognized
-    quantization. Routes through :func:`detect_quantization_method` so the
-    backend policy and stage weight loaders always agree on which
-    quantization applies to a given checkpoint.
+    SGLang owns detection, config parsing, layer construction, and post-load
+    hooks. The only Omni-specific step needed here is stage-local checkpoint
+    name normalization for methods whose per-block quant names are matched
+    against runtime module names (e.g. AutoRound). Dispatched on the method name
+    so a new method only adds an entry to ``_STAGE_NORMALIZED_METHODS``.
     """
-    hf_config = getattr(model_config, "hf_config", None)
-    quant_dict = extract_quantization_config(hf_config)
+    quant_dict = resolve_quant_config(getattr(model_config, "hf_config", None))
     if quant_dict is None:
-        return None
+        return
 
-    method_instance = detect_quantization_method(quant_dict=quant_dict)
-    if method_instance is None:
-        raw_method = quant_dict.get("quant_method")
-        if raw_method is not None:
-            logger.warning(f"Unknown quantization method: {raw_method!r}")
-        return None
-    return method_instance
-
-
-def _apply_quantization_method_config(
-    server_args: ServerArgs,
-    model_config: ModelConfig,
-    method_instance: "QuantizationMethod",
-) -> None:
-    """Apply a resolved quantization method's ``configure()`` step.
-
-    The caller passes the same :class:`QuantizationMethod` instance returned
-    by :func:`_detect_quantization_method` so we do not re-resolve the
-    method through the registry here.
-    """
-    method_instance.configure(server_args, model_config)
-    logger.info(f"Applied quantization method configuration: {method_instance.name}")
+    if needs_quant_config_normalization(quant_dict=quant_dict):
+        normalize_quant_config(model_config)
+        logger.info("Applied stage-local quantization name normalization")
 
 
 def _initialize_model_worker_backend_globals(

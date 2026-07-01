@@ -456,10 +456,12 @@ class FullConfigureBackendPolicyCase:
     expected_fp8_gemm_backend: str
 
 
-# Test cases covering the ordering issue: FP8Quantization.configure()
-# runs BEFORE _apply_model_worker_backend_policy(), so only Talker FP8
+# Test cases covering the ordering issue: the Omni quantization adapters
+# run BEFORE _apply_model_worker_backend_policy(), so only Talker FP8
 # with native block quant should get triton GEMM; Thinker and non-Qwen
-# should preserve auto.
+# should preserve auto. The adapters are a no-op for FP8 (they only
+# normalize stage-local names for methods like AutoRound), so all FP8
+# backend policy stays owned by _apply_model_worker_backend_policy().
 CONFIGURE_BACKEND_POLICY_CASES = [
     FullConfigureBackendPolicyCase(
         name="talker_fp8_auto_gemm_becomes_triton",
@@ -612,14 +614,15 @@ def test_configure_backend_policy_fp8_gemm_ordering(
     monkeypatch: pytest.MonkeyPatch,
     case: FullConfigureBackendPolicyCase,
 ) -> None:
-    """Regression test: FP8Quantization.configure() must not clobber fp8_gemm_runner_backend for Thinker.
+    """Regression test: the Omni quantization adapters must not clobber
+    fp8_gemm_runner_backend for Thinker.
 
     The ordering in _configure_backend_policy() is:
-        1. _apply_quantization_method_config() -> FP8Quantization.configure()
+        1. _apply_omni_quantization_adapters()  (no-op for FP8)
         2. _apply_model_worker_backend_policy()
 
     Only step 2 (arch-aware) should set fp8_gemm_runner_backend="triton"
-    for Talker FP8. Step 1 must NOT override it globally.
+    for Talker FP8. Step 1 must NOT touch FP8 backend selection.
     """
     # Install fake modules so we don't need real GPU hardware.
     _install_fake_module(monkeypatch, "sglang")
@@ -673,19 +676,12 @@ def test_configure_backend_policy_fp8_gemm_ordering(
         ep_size=case.ep_size,
     )
 
-    # Step 1: run the REAL _apply_quantization_method_config(), which invokes
-    # FP8Quantization.configure().  Exercising production code (instead of a
-    # hand-written stub) is what makes this a genuine regression guard: if the
-    # unconditional fp8_gemm_runner_backend="triton" override is ever
-    # reintroduced into configure(), the Thinker / non-Qwen "auto" cases below
-    # will fail.  This mirrors the exact ordering in _configure_backend_policy().
-    method_instance = model_worker._detect_quantization_method(model_config)
-    if method_instance is not None:
-        model_worker._apply_quantization_method_config(
-            server_args,
-            model_config,
-            method_instance,
-        )
+    # Step 1: run the REAL _apply_omni_quantization_adapters().  Exercising
+    # production code (instead of a hand-written stub) is what makes this a
+    # genuine regression guard: FP8 must fall through the adapters untouched so
+    # that all FP8 backend selection stays with step 2.  This mirrors the exact
+    # ordering in _configure_backend_policy().
+    model_worker._apply_omni_quantization_adapters(model_config)
 
     # Step 2: run the REAL _apply_model_worker_backend_policy().
     # This is the arch-aware step that sets Talker FP8 Triton.

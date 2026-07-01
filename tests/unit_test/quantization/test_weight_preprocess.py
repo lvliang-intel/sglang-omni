@@ -1,212 +1,165 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for weight_preprocess module."""
+"""Tests for the quantization discovery + weight-preprocessor entry points."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 import torch
 
-import sglang_omni.quantization.weight_preprocess  # noqa: F401
+from sglang_omni.quantization import (
+    resolve_quant_config,
+    quant_method_name,
+    get_weight_preprocessor,
+)
 
 
-@pytest.fixture(autouse=True)
-def _reset_quantization_registry():
-    """Ensure built-in quantization methods are registered before each test.
+class TestExtractQuantizationConfig:
+    """Tests for ``resolve_quant_config`` composite-config walking."""
 
-    Other tests in this directory may clear ``QuantizationRegistry._methods``,
-    which would break detection for FP8 / AutoRound here. The auto-register
-    path only fires ``@register`` once per process (the modules are already
-    imported), so we manually re-register the built-in classes.
-    """
-    from sglang_omni.quantization.methods.autoround import AutoRoundQuantization
-    from sglang_omni.quantization.methods.fp8 import FP8Quantization
-    from sglang_omni.quantization.registry import QuantizationRegistry
+    def test_returns_none_for_none(self) -> None:
+        assert resolve_quant_config(None) is None
 
-    QuantizationRegistry._methods.clear()
-    QuantizationRegistry._initialized = True  # Avoid re-importing modules
-    QuantizationRegistry.register(FP8Quantization)
-    QuantizationRegistry.register(AutoRoundQuantization)
-    yield
+    def test_returns_none_without_quantization(self) -> None:
+        config = SimpleNamespace(model_type="qwen3")
+        assert resolve_quant_config(config) is None
+
+    def test_reads_root_quantization_config(self) -> None:
+        config = SimpleNamespace(
+            quantization_config={"quant_method": "fp8", "weight_block_size": [128, 128]}
+        )
+        result = resolve_quant_config(config)
+        assert result is not None
+        assert result["quant_method"] == "fp8"
+
+    def test_reads_nested_thinker_config(self) -> None:
+        thinker = SimpleNamespace(
+            quantization_config={"quant_method": "fp8", "weight_block_size": [128, 128]}
+        )
+        config = SimpleNamespace(quantization_config=None, thinker_config=thinker)
+        result = resolve_quant_config(config)
+        assert result is not None
+        assert result["quant_method"] == "fp8"
+
+    def test_object_shaped_config_converted_to_dict(self) -> None:
+        quant_config = SimpleNamespace(
+            quant_method="fp8", weight_block_size=[128, 128], bits=8
+        )
+        config = SimpleNamespace(quantization_config=quant_config)
+        result = resolve_quant_config(config)
+        assert isinstance(result, dict)
+        assert result["quant_method"] == "fp8"
+
+    def test_reads_compression_config(self) -> None:
+        config = SimpleNamespace(
+            quantization_config=None,
+            compression_config={"quant_method": "compressed-tensors"},
+        )
+        result = resolve_quant_config(config)
+        assert result is not None
+        assert result["quant_method"] == "compressed-tensors"
+
+
+class TestQuantMethodName:
+    """Tests for ``quant_method_name`` normalization."""
+
+    def test_none_when_no_quantization(self) -> None:
+        assert quant_method_name(SimpleNamespace(model_type="qwen3")) is None
+
+    def test_normalizes_underscore_to_hyphen(self) -> None:
+        assert (
+            quant_method_name(quant_dict={"quant_method": "auto_round"}) == "auto-round"
+        )
+
+    def test_lowercases(self) -> None:
+        assert quant_method_name(quant_dict={"quant_method": "FP8"}) == "fp8"
 
 
 class TestResolveWeightPreprocessor:
-    """Tests for resolve_weight_preprocessor()."""
+    """Tests for ``get_weight_preprocessor`` fixed dispatch."""
 
-    def test_returns_identity_when_no_quantization(self) -> None:
-        """No quantization config returns an identity function."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
+    def test_identity_when_no_quantization(self) -> None:
         config = SimpleNamespace(model_type="qwen3")
-        preprocessor = resolve_weight_preprocessor(config)
+        preprocess = get_weight_preprocessor(config)
 
         weight = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
-        result = preprocessor("model.layers.0.weight", weight)
+        result = preprocess("model.layers.0.weight", weight)
+        assert result is weight
 
-        assert torch.equal(result, weight)
-        assert result is weight  # Should be the same tensor, not a copy
-
-    def test_returns_identity_when_config_is_none(self) -> None:
-        """None config returns an identity function."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
-        preprocessor = resolve_weight_preprocessor(None)
-
+    def test_identity_when_config_is_none(self) -> None:
+        preprocess = get_weight_preprocessor(None)
         weight = torch.tensor([1.0, 2.0])
-        result = preprocessor("some.weight", weight)
+        assert torch.equal(preprocess("some.weight", weight), weight)
 
-        assert torch.equal(result, weight)
-
-    def test_returns_identity_when_no_quantization_config(self) -> None:
-        """Config without quantization_config returns identity."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
-        config = {"model_type": "qwen3", "hidden_size": 4096}
-        preprocessor = resolve_weight_preprocessor(config)
-
-        weight = torch.tensor([1.0])
-        result = preprocessor("weight", weight)
-
-        assert torch.equal(result, weight)
-
-    def test_returns_fp8_preprocessor_for_fp8_checkpoint(self) -> None:
-        """FP8 config returns FP8-specific preprocessor."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
+    def test_fp8_block_returns_reciprocal_preprocessor(self) -> None:
         config = {
             "quantization_config": {
                 "quant_method": "fp8",
-                "bits": 8,
                 "weight_block_size": [128, 128],
             }
         }
-        preprocessor = resolve_weight_preprocessor(config)
+        preprocess = get_weight_preprocessor(
+            SimpleNamespace(**config), fp8_scale_inverted=True
+        )
 
-        # Regular weights should pass through unchanged
+        # Regular weights pass through.
         weight = torch.tensor([[1.0, 2.0]])
-        result = preprocessor("model.weight", weight)
-        assert torch.equal(result, weight)
+        assert torch.equal(preprocess("model.weight", weight), weight)
 
-        # FP8 scale should be converted
+        # Scales are reciprocated.
         scale = torch.tensor([2.0, 4.0])
-        result = preprocessor("model.layers.0.weight_scale_inv", scale)
-        expected = torch.tensor([0.5, 0.25])
-        assert torch.allclose(result, expected)
+        result = preprocess("model.layers.0.weight_scale_inv", scale)
+        assert torch.allclose(result, torch.tensor([0.5, 0.25]))
 
-    def test_returns_identity_for_autoround(self) -> None:
-        """AutoRound returns identity (no weight preprocessing needed)."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
+    def test_fp8_block_default_is_identity(self) -> None:
+        # Without opting in, block-FP8 is left to SGLang's native handling.
         config = {
             "quantization_config": {
-                "quant_method": "auto-round",
-                "bits": 4,
-            }
-        }
-        preprocessor = resolve_weight_preprocessor(config)
-
-        weight = torch.tensor([[1.0, 2.0]])
-        result = preprocessor("model.layers.0.weight", weight)
-
-        # AutoRound doesn't modify weights
-        assert torch.equal(result, weight)
-
-    def test_nested_config_with_quantization_in_thinker(self) -> None:
-        """Nested config with quantization in thinker_config is detected."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
-        )
-
-        thinker_quant = {
-            "quantization_config": {
                 "quant_method": "fp8",
-                "bits": 8,
                 "weight_block_size": [128, 128],
             }
         }
+        preprocess = get_weight_preprocessor(SimpleNamespace(**config))
+        scale = torch.tensor([2.0, 4.0])
+        assert torch.equal(
+            preprocess("model.layers.0.weight_scale_inv", scale), scale
+        )
+
+    def test_fp8_without_block_size_is_identity(self) -> None:
+        # Per-tensor FP8 is handled entirely by SGLang; no Omni preprocessing.
         config = SimpleNamespace(
-            model_type="qwen3-omni",
-            thinker_config=SimpleNamespace(**thinker_quant),
+            quantization_config={"quant_method": "fp8"},
         )
-        preprocessor = resolve_weight_preprocessor(config)
-
-        # Should use FP8 preprocessor from nested config
+        preprocess = get_weight_preprocessor(config)
         scale = torch.tensor([2.0])
-        result = preprocessor("layers.0.weight_scale_inv", scale)
-        assert torch.allclose(result, torch.tensor([0.5]))
+        assert torch.equal(preprocess("layer.weight_scale_inv", scale), scale)
 
-    def test_object_shaped_quantization_config(self) -> None:
-        """Object-shaped quantization config is converted to dict."""
-        from sglang_omni.quantization.weight_preprocess import (
-            resolve_weight_preprocessor,
+    def test_auto_round_is_identity(self) -> None:
+        config = SimpleNamespace(
+            quantization_config={"quant_method": "auto-round", "bits": 4},
+        )
+        preprocess = get_weight_preprocessor(config)
+        weight = torch.tensor([[1.0, 2.0]])
+        assert torch.equal(preprocess("model.layers.0.weight", weight), weight)
+
+    def test_nested_fp8_config_is_detected(self) -> None:
+        thinker = SimpleNamespace(
+            quantization_config={"quant_method": "fp8", "weight_block_size": [128, 128]}
+        )
+        config = SimpleNamespace(quantization_config=None, thinker_config=thinker)
+        preprocess = get_weight_preprocessor(config, fp8_scale_inverted=True)
+
+        scale = torch.tensor([2.0])
+        assert torch.allclose(
+            preprocess("layers.0.weight_scale_inv", scale), torch.tensor([0.5])
         )
 
-        quant_config = SimpleNamespace(
-            quant_method="fp8",
-            bits=8,
-            weight_block_size=[128, 128],
+    def test_accepts_prefetched_quant_dict(self) -> None:
+        preprocess = get_weight_preprocessor(
+            quant_dict={"quant_method": "fp8", "weight_block_size": [128, 128]},
+            fp8_scale_inverted=True,
         )
-        config = SimpleNamespace(quantization_config=quant_config)
-
-        preprocessor = resolve_weight_preprocessor(config)
-
         scale = torch.tensor([4.0])
-        result = preprocessor("layers.0.weight_scale_inv", scale)
-        assert torch.allclose(result, torch.tensor([0.25]))
-
-
-class TestDetectQuantizationMethod:
-    """Tests for the unified ``detect_quantization_method`` entry point."""
-
-    def test_returns_none_when_no_quantization(self) -> None:
-        """Returns None when config has no quantization."""
-        from sglang_omni.quantization import detect_quantization_method
-
-        config = SimpleNamespace(model_type="qwen3")
-        result = detect_quantization_method(config=config)
-
-        assert result is None
-
-    def test_returns_none_for_fp8_without_block_size(self) -> None:
-        """FP8 without weight_block_size returns None."""
-        from sglang_omni.quantization import detect_quantization_method
-
-        config = {
-            "quantization_config": {
-                "quant_method": "fp8",
-                "bits": 8,
-                # Missing weight_block_size
-            }
-        }
-        result = detect_quantization_method(config=config)
-
-        # Should not detect FP8 without required block_size
-        assert result is None
-
-    def test_returns_method_for_valid_fp8(self) -> None:
-        """Valid FP8 config returns FP8Quantization."""
-        from sglang_omni.quantization import detect_quantization_method
-        from sglang_omni.quantization.methods.fp8 import FP8Quantization
-
-        config = {
-            "quantization_config": {
-                "quant_method": "fp8",
-                "bits": 8,
-                "weight_block_size": [128, 128],
-            }
-        }
-        result = detect_quantization_method(config=config)
-
-        assert result is not None
-        assert isinstance(result, FP8Quantization)
+        assert torch.allclose(
+            preprocess("layers.0.weight_scale_inv", scale), torch.tensor([0.25])
+        )

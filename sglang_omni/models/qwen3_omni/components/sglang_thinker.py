@@ -21,7 +21,7 @@ from sglang.srt.model_loader.weight_utils import default_weight_loader
 from sglang.srt.models.qwen3_vl_moe import Qwen3MoeLLMModel, load_fused_expert_weights
 from sglang.srt.utils import add_prefix, logger
 
-from sglang_omni.quantization import resolve_weight_preprocessor
+from sglang_omni.quantization import get_weight_preprocessor
 
 
 class Qwen3OmniThinkerForCausalLM(nn.Module):
@@ -123,7 +123,9 @@ class Qwen3OmniThinkerForCausalLM(nn.Module):
         params_dict = dict(self.named_parameters())
         num_experts = self.config.num_experts
 
-        preprocess_weight = resolve_weight_preprocessor(self.root_config)
+        preprocess_weight = get_weight_preprocessor(
+            self.root_config, fp8_scale_inverted=True
+        )
 
         for name, loaded_weight in weights:
             name = name.replace("model.language_model.", "model.")

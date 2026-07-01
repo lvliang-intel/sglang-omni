@@ -1,173 +1,78 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for FP8 quantization method."""
+"""Tests for FP8 ``weight_scale_inv`` reciprocal preprocessing."""
 
 from __future__ import annotations
 
 import pytest
 import torch
 
-from sglang_omni.quantization.methods.fp8 import FP8Quantization
+from sglang_omni.quantization import convert_fp8_weight_scale_inv, is_fp8_block_quant
 
 
-class TestFP8Quantization:
-    """Tests for FP8Quantization."""
+class TestIsFp8BlockQuant:
+    """Tests for ``is_fp8_block_quant`` detection."""
 
-    def test_detect_fp8(self) -> None:
-        """Test FP8 detection from config."""
-        config = {
-            "quantization_config": {
-                "quant_method": "fp8",
-                "bits": 8,
-                "weight_block_size": [128, 128],
-            }
-        }
-
-        assert FP8Quantization.detect(config) is True
-
-    def test_detect_fp8_missing_block_size(self) -> None:
-        """Test that FP8 without block size is not detected."""
-        config = {
-            "quantization_config": {
-                "quant_method": "fp8",
-                "bits": 8,
-            }
-        }
-
-        assert FP8Quantization.detect(config) is False
-
-    def test_detect_not_fp8(self) -> None:
-        """Test that non-FP8 methods are not detected."""
-        config = {
-            "quantization_config": {
-                "quant_method": "awq",
-                "bits": 4,
-            }
-        }
-
-        assert FP8Quantization.detect(config) is False
-
-    def test_preprocess_weights_regular(self) -> None:
-        """Test preprocessing regular weights (no conversion)."""
-        method = FP8Quantization()
-        weight = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
-
-        result = method.preprocess_weights("model.weight", weight)
-
-        assert torch.equal(result, weight)
-
-    def test_preprocess_weights_scale_inv_conversion(self) -> None:
-        """Test converting weight_scale_inv to runtime scale."""
-        method = FP8Quantization()
-        # HF stores inverse, we need reciprocal
-        weight_scale_inv = torch.tensor([2.0, 4.0, 8.0], dtype=torch.float32)
-
-        result = method.preprocess_weights(
-            "model.layers.0.mlp.gate_proj.weight_scale_inv", weight_scale_inv
+    def test_true_for_block_fp8(self) -> None:
+        assert is_fp8_block_quant(
+            {"quant_method": "fp8", "weight_block_size": [128, 128]}
         )
 
+    def test_false_without_block_size(self) -> None:
+        assert not is_fp8_block_quant({"quant_method": "fp8"})
+
+    def test_false_for_non_fp8(self) -> None:
+        assert not is_fp8_block_quant(
+            {"quant_method": "auto-round", "weight_block_size": [128, 128]}
+        )
+
+    def test_false_for_none(self) -> None:
+        assert not is_fp8_block_quant(None)
+
+
+class TestConvertFp8WeightScaleInv:
+    """Tests for ``convert_fp8_weight_scale_inv``."""
+
+    def test_regular_weight_passes_through(self) -> None:
+        weight = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        result = convert_fp8_weight_scale_inv("model.weight", weight)
+        assert result is weight
+
+    def test_scale_inv_is_reciprocated(self) -> None:
+        scale_inv = torch.tensor([2.0, 4.0, 8.0], dtype=torch.float32)
+        result = convert_fp8_weight_scale_inv(
+            "model.layers.0.mlp.gate_proj.weight_scale_inv", scale_inv
+        )
         expected = torch.tensor([0.5, 0.25, 0.125], dtype=torch.float32)
         assert torch.allclose(result, expected)
 
-    def test_preprocess_weights_scale_inv_preserves_original(self) -> None:
-        """Test that original weight_scale_inv is not modified."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([2.0, 4.0], dtype=torch.float32)
-
-        _ = method.preprocess_weights(
-            "model.layers.0.self_attn.qkv_proj.weight_scale_inv", weight_scale_inv
+    def test_original_tensor_not_mutated(self) -> None:
+        scale_inv = torch.tensor([2.0, 4.0], dtype=torch.float32)
+        _ = convert_fp8_weight_scale_inv(
+            "model.layers.0.self_attn.qkv_proj.weight_scale_inv", scale_inv
         )
+        assert torch.equal(scale_inv, torch.tensor([2.0, 4.0]))
 
-        assert torch.equal(weight_scale_inv, torch.tensor([2.0, 4.0]))
-
-    def test_preprocess_weights_scale_inv_empty_raises(self) -> None:
-        """Test that empty scale tensor raises ValueError."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([], dtype=torch.float32)
-
+    def test_empty_scale_raises(self) -> None:
+        scale_inv = torch.tensor([], dtype=torch.float32)
         with pytest.raises(ValueError, match="Invalid empty FP8 scale tensor"):
-            method.preprocess_weights(
-                "model.layers.0.mlp.gate_up_proj.weight_scale_inv", weight_scale_inv
-            )
+            convert_fp8_weight_scale_inv("layer.weight_scale_inv", scale_inv)
 
-    def test_preprocess_weights_scale_inv_zero_raises(self) -> None:
-        """Test that zero scale tensor raises ValueError."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([2.0, 0.0], dtype=torch.float32)
-
+    def test_zero_scale_raises(self) -> None:
+        scale_inv = torch.tensor([2.0, 0.0], dtype=torch.float32)
         with pytest.raises(ValueError, match="Invalid zero FP8 scale tensor"):
-            method.preprocess_weights(
-                "model.layers.0.mlp.down_proj.weight_scale_inv", weight_scale_inv
-            )
+            convert_fp8_weight_scale_inv("layer.weight_scale_inv", scale_inv)
 
-    def test_preprocess_weights_scale_inv_inf_raises(self) -> None:
-        """Test that infinite scale tensor raises ValueError."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([2.0, float("inf")], dtype=torch.float32)
-
+    def test_inf_scale_raises(self) -> None:
+        scale_inv = torch.tensor([2.0, float("inf")], dtype=torch.float32)
         with pytest.raises(ValueError, match="Invalid non-finite FP8 scale tensor"):
-            method.preprocess_weights(
-                "model.layers.0.self_attn.o_proj.weight_scale_inv", weight_scale_inv
-            )
+            convert_fp8_weight_scale_inv("layer.weight_scale_inv", scale_inv)
 
-    def test_preprocess_weights_scale_inv_nan_raises(self) -> None:
-        """Test that NaN scale tensor raises ValueError."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([2.0, float("nan")], dtype=torch.float32)
-
+    def test_nan_scale_raises(self) -> None:
+        scale_inv = torch.tensor([2.0, float("nan")], dtype=torch.float32)
         with pytest.raises(ValueError, match="Invalid non-finite FP8 scale tensor"):
-            method.preprocess_weights(
-                "model.layers.0.self_attn.o_proj.weight_scale_inv", weight_scale_inv
-            )
+            convert_fp8_weight_scale_inv("layer.weight_scale_inv", scale_inv)
 
-    def test_preprocess_weights_scale_inv_non_float_raises(self) -> None:
-        """Test that non-float scale tensor raises TypeError."""
-        method = FP8Quantization()
-        weight_scale_inv = torch.tensor([1, 2, 3], dtype=torch.int32)
-
-        with pytest.raises(TypeError, match="FP8 scale tensor.*must be floating point"):
-            method.preprocess_weights(
-                "model.layers.0.mlp.gate_up_proj.weight_scale_inv", weight_scale_inv
-            )
-
-
-class TestFP8NoBackendPolicy:
-    """Tests verifying FP8Quantization no longer owns backend policy."""
-
-    def test_configure_is_noop(self) -> None:
-        """FP8Quantization.configure() should be a no-op (no backend policy)."""
-        method = FP8Quantization()
-        server_args = {"moe_runner_backend": "auto", "fp8_gemm_runner_backend": "auto"}
-
-        # Should not raise and should not modify server_args
-        method.configure(server_args, None)
-
-        # server_args should be unchanged (still a dict)
-        assert server_args["moe_runner_backend"] == "auto"
-        assert server_args["fp8_gemm_runner_backend"] == "auto"
-
-    def test_no_backend_helper_methods(self) -> None:
-        """Backend-related helper methods should be removed."""
-        method = FP8Quantization()
-
-        # These helper methods were removed
-        assert not hasattr(method, "_model_has_moe")
-        assert not hasattr(method, "_model_has_native_fp8_block_quant")
-        assert not hasattr(method, "_is_cutlass_supported")
-
-    def test_focuses_on_detection_and_preprocessing(self) -> None:
-        """FP8Quantization should focus on detection and weight preprocessing."""
-        method = FP8Quantization()
-
-        # Should still have detection
-        config = {
-            "quantization_config": {
-                "quant_method": "fp8",
-                "weight_block_size": [128, 128],
-            }
-        }
-        assert method.detect(config) is True
-
-        # Should still have preprocessing
-        weight = torch.tensor([2.0])
-        result = method.preprocess_weights("layer.weight_scale_inv", weight)
-        assert torch.allclose(result, torch.tensor([0.5]))
+    def test_non_float_scale_raises(self) -> None:
+        scale_inv = torch.tensor([1, 2, 3], dtype=torch.int32)
+        with pytest.raises(TypeError, match="must be floating point"):
+            convert_fp8_weight_scale_inv("layer.weight_scale_inv", scale_inv)
