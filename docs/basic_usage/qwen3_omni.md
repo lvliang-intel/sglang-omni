@@ -289,7 +289,7 @@ sgl-omni serve \
 AutoRound quantization provides:
 - **~50% memory reduction** compared to BF16 (from ~60GB to ~30GB)
 - **~25% memory reduction** compared to FP8 (from ~40GB to ~30GB)
-- **Automatic weight preprocessing** via the unified quantization abstraction
+- **Accuracy at ultra-low bit widths**: maintains high accuracy even at 2–4 bits, requiring minimal tuning effort thanks to its sign-gradient descent optimization.
 
 ### Image and Text Input
 

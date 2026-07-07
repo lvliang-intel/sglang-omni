@@ -78,10 +78,6 @@ __all__ = [
     "normalize_quant_config",
 ]
 
-
-# --------------------------------------------------------------------------- #
-# quantization_config discovery
-# --------------------------------------------------------------------------- #
 def _to_mutable_dict(quant_config: Any) -> dict[str, Any] | None:
     """Normalize a ``quantization_config`` value to a mutable dict."""
     if quant_config is None:
@@ -156,9 +152,6 @@ def is_fp8_block_quant(quant_dict: dict[str, Any] | None) -> bool:
     return quant_dict.get("weight_block_size") is not None
 
 
-# --------------------------------------------------------------------------- #
-# FP8 weight preprocessing
-# --------------------------------------------------------------------------- #
 def convert_fp8_weight_scale_inv(
     target_name: str,
     loaded_weight: "torch.Tensor",
@@ -201,9 +194,6 @@ def get_weight_preprocessor(
     return _identity_preprocessor
 
 
-# --------------------------------------------------------------------------- #
-# Stage-local checkpoint name normalization
-# --------------------------------------------------------------------------- #
 def needs_quant_config_normalization(
     config: Any = None,
     *,
