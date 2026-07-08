@@ -348,27 +348,41 @@ def _normalize_block_name_to_quantize(
 
 def _load_writable_quant_config(
     hf_config: Any,
-) -> tuple[str, dict[str, Any], bool] | None:
-    """Return `(metadata_key, quant_config, needs_writeback)` for `hf_config`'s own
-    quant metadata, or `None` if it doesn't carry one."""
-    for metadata_key in _QUANT_METADATA_KEYS:
-        quant_config_raw = getattr(hf_config, metadata_key, None)
-        if quant_config_raw is None:
-            continue
+) -> tuple[Any, str, dict[str, Any], bool] | None:
+    """Return `(owner, metadata_key, quant_config, needs_writeback)` for the
+    quant metadata discovered on `hf_config` or a nested stage sub-config,
+    or `None` if none is found."""
+    visited: set[int] = set()
 
-        quant_config = _to_mutable_dict(quant_config_raw)
-        if quant_config is None:
-            raise TypeError(
-                f"Stage-local normalization was requested but {metadata_key} "
-                f"has an unsupported type {type(quant_config_raw).__name__!r}. "
-                f"Expected dict or object with to_dict()/__dict__."
-            )
-        # If we created a new dict from a non-dict object, we must write it
-        # back after mutation so downstream consumers see the normalized names.
-        needs_writeback = quant_config is not quant_config_raw
-        return metadata_key, quant_config, needs_writeback
+    def _search(node: Any) -> tuple[Any, str, dict[str, Any], bool] | None:
+        if node is None or id(node) in visited:
+            return None
+        visited.add(id(node))
 
-    return None
+        for metadata_key in _QUANT_METADATA_KEYS:
+            quant_config_raw = _read_metadata(node, metadata_key)
+            if quant_config_raw is None:
+                continue
+
+            quant_config = _to_mutable_dict(quant_config_raw)
+            if quant_config is None:
+                raise TypeError(
+                    f"Stage-local normalization was requested but {metadata_key} "
+                    f"has an unsupported type {type(quant_config_raw).__name__!r}. "
+                    f"Expected dict or object with to_dict()/__dict__."
+                )
+            # If we created a new dict from a non-dict object, we must write it
+            # back after mutation so downstream consumers see the normalized names.
+            needs_writeback = quant_config is not quant_config_raw
+            return node, metadata_key, quant_config, needs_writeback
+
+        for attr in _NESTED_QUANT_CONFIG_ATTRS:
+            found = _search(_read_metadata(node, attr))
+            if found is not None:
+                return found
+        return None
+
+    return _search(hf_config)
 
 
 def _get_architecture(hf_config: Any) -> str | None:
@@ -385,7 +399,7 @@ def _resolve_stage_prefix(hf_config: Any) -> tuple[str | None, str | None]:
 
 
 def normalize_quant_config(model_config: Any) -> None:
-    """Strip the active stage's checkpoint prefix from the quant config."""
+    """Strip the active stage's checkpoint prefix from the quant config"""
     hf_config = getattr(model_config, "hf_config", None)
     if hf_config is None:
         return
@@ -393,9 +407,9 @@ def normalize_quant_config(model_config: Any) -> None:
     loaded = _load_writable_quant_config(hf_config)
     if loaded is None:
         return
-    metadata_key, quant_config, needs_writeback = loaded
+    owner, metadata_key, quant_config, needs_writeback = loaded
 
-    arch, stage_prefix = _resolve_stage_prefix(hf_config)
+    _, stage_prefix = _resolve_stage_prefix(hf_config)
     if not stage_prefix:
         return
 
@@ -405,7 +419,7 @@ def normalize_quant_config(model_config: Any) -> None:
         return
 
     if needs_writeback:
-        setattr(hf_config, metadata_key, quant_config)
+        setattr(owner, metadata_key, quant_config)
 
 
 # Built-in quant-method specs. A new quantization method (e.g. AWQ, GPTQ) is a single `register_quant_method` call.

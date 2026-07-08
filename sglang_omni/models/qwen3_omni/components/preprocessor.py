@@ -85,7 +85,7 @@ def _extra_special_tokens_compat(model_dir: str) -> dict[str, str]:
         config = json.loads(config_path.read_text())
     except (OSError, ValueError):
         return {}
-    if config.get("extra_special_tokens"):
+    if "extra_special_tokens" in config:
         return {}
     return {
         key: config[key]
@@ -204,6 +204,18 @@ class Qwen3OmniPreprocessor:
                 trust_remote_code=True,
                 local_files_only=True,
                 **compat_kwargs,
+            )
+        except TypeError:
+            logger.warning(
+                "Qwen3OmniMoeProcessor.from_pretrained() rejected "
+                "extra_special_tokens compat kwargs for %s; retrying without "
+                "them",
+                self.model_dir,
+            )
+            self.processor = Qwen3OmniMoeProcessor.from_pretrained(
+                self.model_dir,
+                trust_remote_code=True,
+                local_files_only=True,
             )
         except (OSError, ValueError, RuntimeError):
             if Path(model_path).exists():

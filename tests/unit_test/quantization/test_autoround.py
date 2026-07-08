@@ -206,6 +206,25 @@ class TestNormalizeStageLocalCheckpointConfig:
 
         assert quant_config["block_name_to_quantize"] == "thinker.model.layers"
 
+    def test_normalizes_config_that_lives_only_on_nested_stage_attr(self) -> None:
+        quant_config = {
+            "quant_method": "auto-round",
+            "block_name_to_quantize": "thinker.model.layers",
+        }
+        thinker_config = SimpleNamespace(quantization_config=quant_config)
+        hf_config = SimpleNamespace(
+            architectures=["Qwen3OmniThinkerForCausalLM"],
+            thinker_config=thinker_config,
+        )
+        model_config = SimpleNamespace(hf_config=hf_config)
+
+        normalize_quant_config(model_config)
+
+        assert quant_config["block_name_to_quantize"] == "model.layers"
+        assert thinker_config.quantization_config["block_name_to_quantize"] == (
+            "model.layers"
+        )
+
     def test_missing_hf_config_is_noop(self) -> None:
         model_config = SimpleNamespace(hf_config=None)
         normalize_quant_config(model_config)

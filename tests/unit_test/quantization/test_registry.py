@@ -151,12 +151,8 @@ class TestRegisterCompositeModel:
         assert spec.nested_config_attr is None
 
     def test_does_not_duplicate_nested_config_attr(self) -> None:
-        quant.register_composite_model(
-            "ArchA", nested_config_attr="shared_config"
-        )
-        quant.register_composite_model(
-            "ArchB", nested_config_attr="shared_config"
-        )
+        quant.register_composite_model("ArchA", nested_config_attr="shared_config")
+        quant.register_composite_model("ArchB", nested_config_attr="shared_config")
 
         assert quant._NESTED_QUANT_CONFIG_ATTRS.count("shared_config") == 1
 
