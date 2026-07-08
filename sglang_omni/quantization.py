@@ -348,8 +348,8 @@ def _normalize_block_name_to_quantize(
 
 def _load_writable_quant_config(
     hf_config: Any,
-) -> tuple[dict[str, Any], bool] | None:
-    """Return `(quant_config, needs_writeback)` for `hf_config`'s own
+) -> tuple[str, dict[str, Any], bool] | None:
+    """Return `(metadata_key, quant_config, needs_writeback)` for `hf_config`'s own
     quant metadata, or `None` if it doesn't carry one."""
     for metadata_key in _QUANT_METADATA_KEYS:
         quant_config_raw = getattr(hf_config, metadata_key, None)
