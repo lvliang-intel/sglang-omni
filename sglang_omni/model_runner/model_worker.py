@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from sglang_omni.quantization import (
-    resolve_quant_config,
     needs_quant_config_normalization,
     normalize_quant_config,
+    resolve_quant_config,
 )
 
 if TYPE_CHECKING:

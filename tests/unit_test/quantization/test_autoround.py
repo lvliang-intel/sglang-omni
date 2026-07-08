@@ -103,7 +103,10 @@ class TestNormalizeStageLocalCheckpointConfig:
 
         normalize_quant_config(model_config)
 
-        assert quant_config["block_name_to_quantize"] == "model.layers,model.shared"
+        assert quant_config["block_name_to_quantize"] == [
+            "model.layers",
+            "model.shared",
+        ]
 
     def test_strips_prefix_from_extra_config_keys(self) -> None:
         quant_config = {

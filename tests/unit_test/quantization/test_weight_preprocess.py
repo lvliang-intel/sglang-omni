@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import torch
 
 from sglang_omni.quantization import (
-    resolve_quant_config,
-    quant_method_name,
     get_weight_preprocessor,
+    quant_method_name,
+    resolve_quant_config,
 )
 
 
@@ -121,9 +121,7 @@ class TestResolveWeightPreprocessor:
         }
         preprocess = get_weight_preprocessor(SimpleNamespace(**config))
         scale = torch.tensor([2.0, 4.0])
-        assert torch.equal(
-            preprocess("model.layers.0.weight_scale_inv", scale), scale
-        )
+        assert torch.equal(preprocess("model.layers.0.weight_scale_inv", scale), scale)
 
     def test_fp8_without_block_size_is_identity(self) -> None:
         # Per-tensor FP8 is handled entirely by SGLang; no Omni preprocessing.

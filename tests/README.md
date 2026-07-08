@@ -19,6 +19,7 @@ tests/
     │   ├── test_autoround.py
     │   ├── test_fp8.py
     │   ├── test_integration.py
+    │   ├── test_registry.py
     │   └── test_weight_preprocess.py
     ├── fixtures/
     │   ├── fish_fakes.py
@@ -397,20 +398,27 @@ that happened to contain an older version of the test.
   - lifecycle (start / stop / run_id mismatch / stage substitution)
   - timeline reconstruction, stage breakdown, hop breakdown, malformed-line tolerance.
 
-- `unit_test/quantization/`: Tests for the Omni compatibility layer on top of
-  SGLang's native quantization (`sglang_omni/quantization/`):
+- `unit_test/quantization/`: Tests for the compatibility layer on top of
+  SGLang's native quantization (`sglang_omni/quantization.py`):
   - `resolve_quant_config` discovery from root/nested sub-configs and
     `compression_config`, plus edge cases (missing/empty quantization_config)
   - FP8 detection (with/without weight_block_size), weight_scale_inv reciprocal
     conversion, and error handling (empty/zero/non-finite/non-float scale tensors)
-  - AutoRound stage-prefix normalization for block_name_to_quantize and
-    extra_config regex keys via `normalize_quant_config`
+  - AutoRound stage-prefix normalization for block_name_to_quantize (string
+    input is rejoined as a string; list input is normalized in place and
+    stays a list) and extra_config regex keys via `normalize_quant_config`
   - `get_weight_preprocessor` contract: identity by default (native block-FP8,
     AutoRound), FP8 reciprocal preprocessor only when `fp8_scale_inverted=True`,
     nested config traversal
   - model_worker integration: `_apply_omni_quantization_adapters` triggers
     stage-local normalization from hf_config and nested text_config only when
-    needed.
+    needed
+  - the `QuantMethodSpec` / `CompositeModelSpec` registries: `register_quant_method`
+    / `register_composite_model` register-or-overwrite (never merge) semantics,
+    `PreprocessorContext`-driven weight preprocessing for a hypothetical new
+    method (extensibility contract), deep (3+ level) nested `quantization_config`
+    discovery, and the cyclic-config guard in `resolve_quant_config`.
+
 
 - `unit_test/fixtures/`: Shared fakes. Single-test
   helpers should stay local until a second test needs them.
