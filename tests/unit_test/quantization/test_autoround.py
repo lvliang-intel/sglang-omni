@@ -29,20 +29,16 @@ class TestNeedsStageLocalNormalization:
     """Tests for the ``needs_quant_config_normalization`` dispatch."""
 
     def test_true_for_auto_round(self) -> None:
-        assert needs_quant_config_normalization(
-            quant_dict={"quant_method": "auto-round"}
-        )
+        assert needs_quant_config_normalization({"quant_method": "auto-round"})
 
     def test_true_for_underscore_variant(self) -> None:
-        assert needs_quant_config_normalization(
-            quant_dict={"quant_method": "auto_round"}
-        )
+        assert needs_quant_config_normalization({"quant_method": "auto_round"})
 
     def test_false_for_fp8(self) -> None:
-        assert not needs_quant_config_normalization(quant_dict={"quant_method": "fp8"})
+        assert not needs_quant_config_normalization({"quant_method": "fp8"})
 
     def test_false_for_none(self) -> None:
-        assert not needs_quant_config_normalization(quant_dict=None)
+        assert not needs_quant_config_normalization(None)
 
 
 class TestNormalizeStageLocalCheckpointConfig:

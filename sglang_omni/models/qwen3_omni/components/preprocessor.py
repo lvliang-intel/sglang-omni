@@ -206,6 +206,8 @@ class Qwen3OmniPreprocessor:
                 **compat_kwargs,
             )
         except TypeError:
+            if not compat_kwargs:
+                raise
             logger.warning(
                 "Qwen3OmniMoeProcessor.from_pretrained() rejected "
                 "extra_special_tokens compat kwargs for %s; retrying without "

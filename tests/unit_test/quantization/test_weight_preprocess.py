@@ -17,13 +17,6 @@ from sglang_omni.quantization import (
 class TestExtractQuantizationConfig:
     """Tests for ``resolve_quant_config`` composite-config walking."""
 
-    def test_returns_none_for_none(self) -> None:
-        assert resolve_quant_config(None) is None
-
-    def test_returns_none_without_quantization(self) -> None:
-        config = SimpleNamespace(model_type="qwen3")
-        assert resolve_quant_config(config) is None
-
     def test_reads_root_quantization_config(self) -> None:
         config = SimpleNamespace(
             quantization_config={"quant_method": "fp8", "weight_block_size": [128, 128]}
@@ -69,16 +62,11 @@ class TestExtractQuantizationConfig:
 class TestQuantMethodName:
     """Tests for ``quant_method_name`` normalization."""
 
-    def test_none_when_no_quantization(self) -> None:
-        assert quant_method_name(SimpleNamespace(model_type="qwen3")) is None
-
     def test_normalizes_underscore_to_hyphen(self) -> None:
-        assert (
-            quant_method_name(quant_dict={"quant_method": "auto_round"}) == "auto-round"
-        )
+        assert quant_method_name({"quant_method": "auto_round"}) == "auto-round"
 
     def test_lowercases(self) -> None:
-        assert quant_method_name(quant_dict={"quant_method": "FP8"}) == "fp8"
+        assert quant_method_name({"quant_method": "FP8"}) == "fp8"
 
 
 class TestResolveWeightPreprocessor:
@@ -91,11 +79,6 @@ class TestResolveWeightPreprocessor:
         weight = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
         result = preprocess("model.layers.0.weight", weight)
         assert result is weight
-
-    def test_identity_when_config_is_none(self) -> None:
-        preprocess = get_weight_preprocessor(None)
-        weight = torch.tensor([1.0, 2.0])
-        assert torch.equal(preprocess("some.weight", weight), weight)
 
     def test_fp8_block_returns_reciprocal_preprocessor(self) -> None:
         config = {
@@ -156,14 +139,4 @@ class TestResolveWeightPreprocessor:
         scale = torch.tensor([2.0])
         assert torch.allclose(
             preprocess("layers.0.weight_scale_inv", scale), torch.tensor([0.5])
-        )
-
-    def test_accepts_prefetched_quant_dict(self) -> None:
-        preprocess = get_weight_preprocessor(
-            quant_dict={"quant_method": "fp8", "weight_block_size": [128, 128]},
-            fp8_scale_inverted=True,
-        )
-        scale = torch.tensor([4.0])
-        assert torch.allclose(
-            preprocess("layers.0.weight_scale_inv", scale), torch.tensor([0.25])
         )

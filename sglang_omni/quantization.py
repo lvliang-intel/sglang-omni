@@ -10,7 +10,7 @@ custom weight loaders.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     import torch
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 WeightPreprocessor = Callable[[str, "torch.Tensor"], "torch.Tensor"]
 
 
+_QUANT_METADATA_KEYS: tuple[str, ...] = ("quantization_config", "compression_config")
 _NESTED_QUANT_CONFIG_ATTRS: tuple[str, ...] = (
     "text_config",
     "thinker_config",
@@ -41,17 +42,20 @@ __all__ = [
 ]
 
 
-def _to_mutable_dict(quant_config: Any) -> dict[str, Any] | None:
-    """Normalize a `quantization_config` value to a mutable dict."""
-    if quant_config is None:
-        return None
+def _to_mutable_dict(quant_config: Any, metadata_key: str) -> dict[str, Any]:
+    """Normalize a quantization metadata value to a mutable dict."""
     if isinstance(quant_config, dict):
         return quant_config
     if hasattr(quant_config, "to_dict"):
-        return quant_config.to_dict()
+        quant_dict = quant_config.to_dict()
+        if isinstance(quant_dict, dict):
+            return quant_dict
     if hasattr(quant_config, "__dict__"):
         return vars(quant_config)
-    return None
+    raise TypeError(
+        f"{metadata_key} has unsupported type {type(quant_config).__name__!r}. "
+        f"Expected dict or object with to_dict()/__dict__."
+    )
 
 
 def _read_metadata(node: Any, key: str) -> Any:
@@ -59,10 +63,6 @@ def _read_metadata(node: Any, key: str) -> Any:
     if isinstance(node, dict):
         return node.get(key)
     return getattr(node, key, None)
-
-
-# Ordered by priority.
-_QUANT_METADATA_KEYS: tuple[str, ...] = ("quantization_config", "compression_config")
 
 
 def resolve_quant_config(config: Any) -> dict[str, Any] | None:
@@ -75,9 +75,9 @@ def resolve_quant_config(config: Any) -> dict[str, Any] | None:
         visited.add(id(node))
 
         for key in _QUANT_METADATA_KEYS:
-            found = _to_mutable_dict(_read_metadata(node, key))
-            if found is not None:
-                return found
+            raw_config = _read_metadata(node, key)
+            if raw_config is not None:
+                return _to_mutable_dict(raw_config, key)
 
         for attr in _NESTED_QUANT_CONFIG_ATTRS:
             found = _search(_read_metadata(node, attr))
@@ -88,14 +88,8 @@ def resolve_quant_config(config: Any) -> dict[str, Any] | None:
     return _search(config)
 
 
-def quant_method_name(
-    config: Any = None,
-    *,
-    quant_dict: dict[str, Any] | None = None,
-) -> str | None:
+def quant_method_name(quant_dict: dict[str, Any] | None) -> str | None:
     """Return the checkpoint's normalized quantization method name, or `None`."""
-    if quant_dict is None:
-        quant_dict = resolve_quant_config(config)
     if not quant_dict:
         return None
     method = quant_dict.get("quant_method")
@@ -108,7 +102,7 @@ def is_fp8_block_quant(quant_dict: dict[str, Any] | None) -> bool:
     """True when the checkpoint is native block-FP8."""
     if not quant_dict:
         return False
-    if quant_method_name(quant_dict=quant_dict) != "fp8":
+    if quant_method_name(quant_dict) != "fp8":
         return False
     return quant_dict.get("weight_block_size") is not None
 
@@ -144,25 +138,19 @@ def _identity_preprocessor(
 def get_weight_preprocessor(
     config: Any = None,
     *,
-    quant_dict: dict[str, Any] | None = None,
     fp8_scale_inverted: bool = False,
 ) -> WeightPreprocessor:
     """Return the per-tensor weight transform for a checkpoint's quantization."""
-    if quant_dict is None:
-        quant_dict = resolve_quant_config(config)
+    quant_dict = resolve_quant_config(config)
 
     if fp8_scale_inverted and is_fp8_block_quant(quant_dict):
         return convert_fp8_weight_scale_inv
     return _identity_preprocessor
 
 
-def needs_quant_config_normalization(
-    config: Any = None,
-    *,
-    quant_dict: dict[str, Any] | None = None,
-) -> bool:
+def needs_quant_config_normalization(quant_dict: dict[str, Any] | None) -> bool:
     """True when the checkpoint's method uses stage-local per-block quant names."""
-    method = quant_method_name(config, quant_dict=quant_dict)
+    method = quant_method_name(quant_dict)
     return method == "auto-round"
 
 
@@ -176,10 +164,7 @@ def _strip_stage_prefix(pattern: str, plain_prefix: str, escaped_prefix: str) ->
     if pattern.startswith(leading_wildcard_escaped):
         # Drop only the prefix part; keep the leading ".*" wildcard so the
         # normalized regex still matches stage-local module names.
-        return (
-            leading_wildcard_escaped[: -len(escaped_prefix)]
-            + pattern[len(leading_wildcard_escaped) :]
-        )
+        return r".*" + pattern[len(leading_wildcard_escaped) :]
     return pattern
 
 
@@ -253,13 +238,7 @@ def _load_writable_quant_config(
             if quant_config_raw is None:
                 continue
 
-            quant_config = _to_mutable_dict(quant_config_raw)
-            if quant_config is None:
-                raise TypeError(
-                    f"Stage-local normalization was requested but {metadata_key} "
-                    f"has an unsupported type {type(quant_config_raw).__name__!r}. "
-                    f"Expected dict or object with to_dict()/__dict__."
-                )
+            quant_config = _to_mutable_dict(quant_config_raw, metadata_key)
             # If we created a new dict from a non-dict object, we must write it
             # back after mutation so downstream consumers see the normalized names.
             needs_writeback = quant_config is not quant_config_raw
@@ -274,16 +253,12 @@ def _load_writable_quant_config(
     return _search(hf_config)
 
 
-def _get_architecture(hf_config: Any) -> str | None:
-    """Return the first HF `architectures` entry, or `None`."""
-    architectures: Sequence[str] = getattr(hf_config, "architectures", None) or []
-    return architectures[0] if architectures else None
-
-
-def _resolve_stage_prefix(hf_config: Any) -> tuple[str | None, str | None]:
-    """Return `(arch, checkpoint_prefix)` for the active stage architecture."""
-    arch = _get_architecture(hf_config)
-    return arch, (_STAGE_PREFIX_BY_ARCH.get(arch) if arch else None)
+def _resolve_stage_prefix(hf_config: Any) -> str | None:
+    """Return the checkpoint prefix for the active stage architecture."""
+    architectures = getattr(hf_config, "architectures", None) or []
+    if not architectures:
+        return None
+    return _STAGE_PREFIX_BY_ARCH.get(architectures[0])
 
 
 def normalize_quant_config(model_config: Any) -> None:
@@ -297,7 +272,7 @@ def normalize_quant_config(model_config: Any) -> None:
         return
     owner, metadata_key, quant_config, needs_writeback = loaded
 
-    _, stage_prefix = _resolve_stage_prefix(hf_config)
+    stage_prefix = _resolve_stage_prefix(hf_config)
     if not stage_prefix:
         return
 
