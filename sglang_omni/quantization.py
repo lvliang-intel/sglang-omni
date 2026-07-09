@@ -1,133 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
-"""SGLang-Omni quantization layer built on top of SGLang's native quantization stack.
+"""SGLang-Omni quantization glue for SGLang-owned quantization.
 
 SGLang owns quantization end-to-end: it parses `quantization_config`,
 constructs quantized layers, and executes post-load hooks. This module only
-provides model-specific glue that SGLang cannot infer automatically, while
-remaining model-agnostic by dispatching entirely on the resolved
-`quantization_config`.
-
-The module is driven by two registries:
-
-* `QuantMethodSpec` / `register_quant_method` define method-specific behavior,
-  including weight preprocessing and stage-local quant-config normalization.
-* `CompositeModelSpec` / `register_composite_model` define metadata for
-  multi-stage checkpoints, including nested config attributes and checkpoint
-  weight-name prefixes.
-
-Core APIs:
-
-* `resolve_quant_config` discovers the active `quantization_config` (or
-  `compression_config`) from the root or nested stage configs.
-* `get_weight_preprocessor` returns the per-tensor preprocessing function for
-  the resolved quantization method, defaulting to the identity transform.
-* `normalize_quant_config` rewrites stage-local checkpoint names into runtime
-  module names for quantization methods that require normalization.
-
-Adding support for a new quantization method or composite model only requires
-registering a new spec; the core dispatch logic remains unchanged.
+provides the Qwen3-Omni-specific compatibility SGLang cannot infer by itself:
+stage-local AutoRound config normalization and FP8 scale preprocessing for
+custom weight loaders.
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 if TYPE_CHECKING:
     import torch
 
-logger = logging.getLogger(__name__)
-
 # A weight preprocessor maps `(target_name, loaded_weight) -> loaded_weight`.
 WeightPreprocessor = Callable[[str, "torch.Tensor"], "torch.Tensor"]
 
 
-@dataclass(frozen=True)
-class PreprocessorContext:
-    """Context passed to `build_preprocessor`."""
-
-    fp8_scale_inverted: bool = False
-
-
-# Quant-method registry: Adding a new method is a single `register_quant_method` call
-@dataclass(frozen=True)
-class QuantMethodSpec:
-    """Extra, method-specific handling this module layers on top of SGLang."""
-
-    name: str
-    needs_stage_normalization: bool = False
-    build_preprocessor: (
-        Callable[[dict[str, Any], PreprocessorContext], WeightPreprocessor] | None
-    ) = None
-
-
-_QUANT_METHOD_REGISTRY: dict[str, QuantMethodSpec] = {}
-
-
-def register_quant_method(spec: QuantMethodSpec) -> None:
-    """Register (or replace) the handling for a quantization method."""
-    existing = _QUANT_METHOD_REGISTRY.get(spec.name)
-    if existing is not None and existing != spec:
-        logger.warning(
-            "Overriding existing quant method spec for %r: %r -> %r",
-            spec.name,
-            existing,
-            spec,
-        )
-    _QUANT_METHOD_REGISTRY[spec.name] = spec
-
-
-# Composite-model registry: per-architecture metadata for multi-stage checkpoints.
-@dataclass(frozen=True)
-class CompositeModelSpec:
-    """Per-architecture metadata for a multi-stage checkpoint."""
-
-    arch: str
-    checkpoint_prefix: str | None = None
-    nested_config_attr: str | None = None
-
-
-_COMPOSITE_MODEL_REGISTRY: dict[str, CompositeModelSpec] = {}
-
-# Sub-config attributes walked to find a nested `quantization_config` when
-# the root config does not carry one. Composite models with other
-# stage-config attribute names register them via `register_composite_model`.
-_NESTED_QUANT_CONFIG_ATTRS: list[str] = ["text_config"]
-
-
-def register_composite_model(
-    arch: str,
-    *,
-    checkpoint_prefix: str | None = None,
-    nested_config_attr: str | None = None,
-) -> None:
-    """Register (or replace) a multi-stage model architecture's quant metadata."""
-    existing = _COMPOSITE_MODEL_REGISTRY.get(arch)
-    new_spec = CompositeModelSpec(
-        arch=arch,
-        checkpoint_prefix=checkpoint_prefix,
-        nested_config_attr=nested_config_attr,
-    )
-    if existing is not None and existing != new_spec:
-        logger.warning(
-            "Overriding existing composite model spec for %r: %r -> %r",
-            arch,
-            existing,
-            new_spec,
-        )
-    _COMPOSITE_MODEL_REGISTRY[arch] = new_spec
-
-    if nested_config_attr and nested_config_attr not in _NESTED_QUANT_CONFIG_ATTRS:
-        _NESTED_QUANT_CONFIG_ATTRS.append(nested_config_attr)
-
+_NESTED_QUANT_CONFIG_ATTRS: tuple[str, ...] = (
+    "text_config",
+    "thinker_config",
+    "talker_config",
+)
+_STAGE_PREFIX_BY_ARCH: dict[str, str] = {
+    "Qwen3OmniThinkerForCausalLM": "thinker.",
+    "Qwen3ASRForConditionalGeneration": "thinker.",
+    "Qwen3OmniTalker": "talker.",
+}
 
 __all__ = [
-    "QuantMethodSpec",
-    "register_quant_method",
-    "PreprocessorContext",
-    "CompositeModelSpec",
-    "register_composite_model",
     "resolve_quant_config",
     "quant_method_name",
     "is_fp8_block_quant",
@@ -238,15 +141,6 @@ def _identity_preprocessor(
     return loaded_weight
 
 
-def _build_fp8_preprocessor(
-    quant_dict: dict[str, Any], context: PreprocessorContext
-) -> WeightPreprocessor:
-    """Return the FP8 weight preprocessor."""
-    if not context.fp8_scale_inverted or not is_fp8_block_quant(quant_dict):
-        return _identity_preprocessor
-    return convert_fp8_weight_scale_inv
-
-
 def get_weight_preprocessor(
     config: Any = None,
     *,
@@ -257,13 +151,9 @@ def get_weight_preprocessor(
     if quant_dict is None:
         quant_dict = resolve_quant_config(config)
 
-    method = quant_method_name(quant_dict=quant_dict)
-    spec = _QUANT_METHOD_REGISTRY.get(method) if method else None
-    if spec is None or spec.build_preprocessor is None:
-        return _identity_preprocessor
-
-    context = PreprocessorContext(fp8_scale_inverted=fp8_scale_inverted)
-    return spec.build_preprocessor(quant_dict or {}, context)
+    if fp8_scale_inverted and is_fp8_block_quant(quant_dict):
+        return convert_fp8_weight_scale_inv
+    return _identity_preprocessor
 
 
 def needs_quant_config_normalization(
@@ -273,8 +163,7 @@ def needs_quant_config_normalization(
 ) -> bool:
     """True when the checkpoint's method uses stage-local per-block quant names."""
     method = quant_method_name(config, quant_dict=quant_dict)
-    spec = _QUANT_METHOD_REGISTRY.get(method) if method else None
-    return bool(spec and spec.needs_stage_normalization)
+    return method == "auto-round"
 
 
 def _strip_stage_prefix(pattern: str, plain_prefix: str, escaped_prefix: str) -> str:
@@ -394,8 +283,7 @@ def _get_architecture(hf_config: Any) -> str | None:
 def _resolve_stage_prefix(hf_config: Any) -> tuple[str | None, str | None]:
     """Return `(arch, checkpoint_prefix)` for the active stage architecture."""
     arch = _get_architecture(hf_config)
-    spec = _COMPOSITE_MODEL_REGISTRY.get(arch) if arch else None
-    return arch, (spec.checkpoint_prefix if spec else None)
+    return arch, (_STAGE_PREFIX_BY_ARCH.get(arch) if arch else None)
 
 
 def normalize_quant_config(model_config: Any) -> None:
@@ -420,38 +308,3 @@ def normalize_quant_config(model_config: Any) -> None:
 
     if needs_writeback:
         setattr(owner, metadata_key, quant_config)
-
-
-# Built-in quant-method specs. A new quantization method (e.g. AWQ, GPTQ) is a single `register_quant_method` call.
-register_quant_method(
-    QuantMethodSpec(
-        name="fp8",
-        needs_stage_normalization=False,
-        build_preprocessor=_build_fp8_preprocessor,
-    )
-)
-register_quant_method(
-    QuantMethodSpec(
-        name="auto-round",
-        needs_stage_normalization=True,
-    )
-)
-
-
-# Built-in registrations for composite models already integrated in this
-# repo. New composite models call `register_composite_model` to register.
-register_composite_model(
-    "Qwen3OmniThinkerForCausalLM",
-    checkpoint_prefix="thinker.",
-    nested_config_attr="thinker_config",
-)
-register_composite_model(
-    "Qwen3ASRForConditionalGeneration",
-    checkpoint_prefix="thinker.",
-    nested_config_attr="thinker_config",
-)
-register_composite_model(
-    "Qwen3OmniTalker",
-    checkpoint_prefix="talker.",
-    nested_config_attr="talker_config",
-)

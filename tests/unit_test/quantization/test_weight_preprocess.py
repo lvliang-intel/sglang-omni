@@ -59,6 +59,12 @@ class TestExtractQuantizationConfig:
         assert result is not None
         assert result["quant_method"] == "compressed-tensors"
 
+    def test_cyclic_config_does_not_infinite_loop(self) -> None:
+        config = SimpleNamespace(quantization_config=None)
+        config.text_config = config
+
+        assert resolve_quant_config(config) is None
+
 
 class TestQuantMethodName:
     """Tests for ``quant_method_name`` normalization."""

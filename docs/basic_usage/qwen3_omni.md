@@ -268,14 +268,16 @@ SGLANG_JIT_DEEPGEMM_PRECOMPILE=1 sgl-omni serve \
   --port 8008
 ```
 
-## Single-GPU AutoRound INT4 on H100/H20
+## Single-GPU AutoRound INT4 Thinker on H100/H20
 
 SGLang-Omni also supports AutoRound INT4 quantized Qwen3-Omni checkpoints.
 AutoRound uses a 4-bit quantization scheme with group size 128, significantly
 reducing memory footprint compared to BF16 or FP8.
 
-For one-GPU H100/H20 colocated launch, use the colocated config with the
-AutoRound checkpoint:
+The public AutoRound checkpoint quantizes the thinker transformer layers. In
+speech mode, the talker and code2wav stages load as BF16 from the same
+checkpoint. For one-GPU H100/H20 colocated launch, use the colocated config
+with the AutoRound checkpoint:
 
 ```bash
 sgl-omni serve \

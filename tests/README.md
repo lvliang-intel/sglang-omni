@@ -20,7 +20,6 @@ tests/
     │   ├── test_autoround.py
     │   ├── test_fp8.py
     │   ├── test_integration.py
-    │   ├── test_registry.py
     │   └── test_weight_preprocess.py
     ├── fixtures/
     │   ├── fish_fakes.py
@@ -446,11 +445,6 @@ that happened to contain an older version of the test.
   - model_worker integration: `_apply_omni_quantization_adapters` triggers
     stage-local normalization from hf_config and nested text_config only when
     needed
-  - the `QuantMethodSpec` / `CompositeModelSpec` registries: `register_quant_method`
-    / `register_composite_model` register-or-overwrite (never merge) semantics,
-    `PreprocessorContext`-driven weight preprocessing for a hypothetical new
-    method (extensibility contract), deep (3+ level) nested `quantization_config`
-    discovery, and the cyclic-config guard in `resolve_quant_config`.
 
 
 - `unit_test/fixtures/`: Shared fakes. Single-test
